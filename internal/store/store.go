@@ -79,3 +79,19 @@ func (s *Store) GetLogs(deploymentID string) ([]string, error) {
 	}
 	return logs, rows.Err()
 }
+
+func (s *Store) UpdateDeploymentStatus(deploymentID, status string) error {
+	_, err := s.db.Exec(
+		`UPDATE deployments SET status = ? WHERE id = ?`,
+		status, deploymentID,
+	)
+	return err
+}
+
+func (s *Store) AppendLog(deploymentID, phase, line string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO logs (deployment_id, phase, line) VALUES (?, ?, ?)`,
+		deploymentID, phase, line,
+	)
+	return err
+}
