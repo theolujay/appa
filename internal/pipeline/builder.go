@@ -18,7 +18,7 @@ func (p *Pipeline) Build(deploymentID, source string) (string, error) {
 	if err := p.store.UpdateDeploymentStatus(deploymentID, "building"); err != nil {
 		return "", fmt.Errorf("failed to update status: %w", err)
 	}
-	imageTag := fmt.Sprintf("appa-%s", deploymentID[:8])
+	imageTag := fmt.Sprintf("appa-%s", truncateDeploymentID(deploymentID))
 
 	// Construct Railway build command. `--image` flag tels Railpack what to
 	// name the resulting image. The `source` arg is the Git URL.

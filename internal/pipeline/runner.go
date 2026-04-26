@@ -14,10 +14,10 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// Run starts a container from the given image tag and streams its logs
+// StartContainer starts a container from the given image tag and streams its logs
 // to the hub and he database. It returns the host:port address of the
 // running contianer so the router can configure Caddy to point at it.
-func (p *Pipeline) Run(deploymentID, imageTag string) (string, error) {
+func (p *Pipeline) StartContainer(deploymentID, imageTag string) (string, error) {
 	if err := p.store.UpdateDeploymentStatus(deploymentID, "deploying"); err != nil {
 		return "", fmt.Errorf("failed to update status: %w", err)
 	}

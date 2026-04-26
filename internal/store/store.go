@@ -95,3 +95,11 @@ func (s *Store) AppendLog(deploymentID, phase, line string) error {
 	)
 	return err
 }
+
+func (s *Store) UpdateDeploymentURL(deploymentID, url string) error {
+	_, err := s.db.Exec(
+		`UPDATE deployments SET url = ? WHERE id = ?`,
+		url, deploymentID,
+	)
+	return err
+}
