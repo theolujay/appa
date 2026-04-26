@@ -16,7 +16,3 @@ func New(s *store.Store, h *hub.Hub) *Pipeline {
 		hub:   h,
 	}
 }
-
-func (p *Pipeline) Run(id, source string) {
-
-}
