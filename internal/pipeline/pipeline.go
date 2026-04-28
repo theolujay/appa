@@ -47,7 +47,9 @@ func (p *Pipeline) Run(deploymentID, source string) {
 			status = store.CANCELED
 		}
 		p.store.UpdateDeployment(deploymentID, store.DeploymentUpdate{Status: &status})
-		p.store.AppendLog(deploymentID, "build", fmt.Sprintf("build cancelled: %v", err))
+		msg := fmt.Sprintf("build failed: %v", err)
+		id, _ := p.store.AppendLog(deploymentID, "build", msg)
+		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
 		p.hub.PublishStatus(deploymentID, status, "")
 		return
 	}
@@ -59,7 +61,9 @@ func (p *Pipeline) Run(deploymentID, source string) {
 			status = store.CANCELED
 		}
 		p.store.UpdateDeployment(deploymentID, store.DeploymentUpdate{Status: &status})
-		p.store.AppendLog(deploymentID, "deploy", fmt.Sprintf("deployment cancelled: %v", err))
+		msg := fmt.Sprintf("deployment failed: %v", err)
+		id, _ := p.store.AppendLog(deploymentID, "deploy", msg)
+		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
 		p.hub.PublishStatus(deploymentID, status, "")
 		return
 	}
@@ -67,7 +71,9 @@ func (p *Pipeline) Run(deploymentID, source string) {
 	if err := p.AddRoute(deploymentID, address); err != nil {
 		status = store.FAILED
 		p.store.UpdateDeployment(deploymentID, store.DeploymentUpdate{Status: &status})
-		p.store.AppendLog(deploymentID, "deploy", fmt.Sprintf("routing failed: %v", err))
+		msg := fmt.Sprintf("routing failed: %v", err)
+		id, _ := p.store.AppendLog(deploymentID, "deploy", msg)
+		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
 		p.hub.PublishStatus(deploymentID, status, "")
 		return
 	}
@@ -76,9 +82,12 @@ func (p *Pipeline) Run(deploymentID, source string) {
 	url := fmt.Sprintf("http://localhost/deploys/%s", deploymentID)
 
 	status = store.RUNNING
-	p.store.UpdateDeployment(deploymentID, store.DeploymentUpdate{Status: &status})
-	p.store.UpdateDeployment(deploymentID, store.DeploymentUpdate{URL: &url})
-	p.store.UpdateDeployment(deploymentID, store.DeploymentUpdate{Address: &address})
+	p.store.UpdateDeployment(deploymentID, store.DeploymentUpdate{
+		Status:  &status,
+		URL:     &url,
+		Address: &address,
+	})
+
 	msg := fmt.Sprintf("deployment live at %s", url)
 	id, _ := p.store.AppendLog(deploymentID, "deploy", msg)
 	p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})

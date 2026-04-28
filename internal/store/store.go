@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -210,40 +211,39 @@ func (s *Store) AppendLog(deploymentID, phase, line string) (int64, error) {
 }
 
 func (s *Store) UpdateDeployment(id string, u DeploymentUpdate) error {
+	query := "UPDATE deployments SET "
+	var args []interface{}
+	var fields []string
+
 	if u.Status != nil {
-		if _, err := s.db.Exec(
-			`UPDATE deployments SET status = ? WHERE id = ?`, *u.Status, id,
-		); err != nil {
-			return err
-		}
+		fields = append(fields, "status = ?")
+		args = append(args, *u.Status)
 	}
 	if u.ImageTag != nil {
-		if _, err := s.db.Exec(
-			`UPDATE deployments SET image_tag = ? WHERE id = ?`, *u.ImageTag, id,
-		); err != nil {
-			return err
-		}
+		fields = append(fields, "image_tag = ?")
+		args = append(args, *u.ImageTag)
 	}
 	if u.Address != nil {
-		if _, err := s.db.Exec(
-			`UPDATE deployments SET address = ? WHERE id = ?`, *u.Address, id,
-		); err != nil {
-			return err
-		}
+		fields = append(fields, "address = ?")
+		args = append(args, *u.Address)
 	}
 	if u.EnvVars != nil {
-		if _, err := s.db.Exec(
-			`UPDATE deployments SET env_vars = ? WHERE id = ?`, *u.EnvVars, id,
-		); err != nil {
-			return err
-		}
+		fields = append(fields, "env_vars = ?")
+		args = append(args, *u.EnvVars)
 	}
 	if u.URL != nil {
-		if _, err := s.db.Exec(
-			`UPDATE deployments SET url = ? WHERE id = ?`, *u.URL, id,
-		); err != nil {
-			return err
-		}
+		fields = append(fields, "url = ?")
+		args = append(args, *u.URL)
 	}
-	return nil
+
+	if len(fields) == 0 {
+		return nil
+	}
+
+	query += strings.Join(fields, ", ")
+	query += " WHERE id = ?"
+	args = append(args, id)
+
+	_, err := s.db.Exec(query, args...)
+	return err
 }

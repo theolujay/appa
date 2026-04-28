@@ -11,18 +11,15 @@
     @dashboard host localhost 127.0.0.1
 
     handle @dashboard {
-
-        handle /deploys/* {
-            respond "Deployment not found or not yet running" 502
-        }
-
+        # API Proxy
         handle /deployments* {
             reverse_proxy {$API_URL:api:8080} {
                 header_up Host {host}
-                header_up X-Real-Ip {remote_host}
+                header_up X-Real-IP {remote_host}
             }
         }
 
+        # Frontend Proxy (Vite)
         handle {
             reverse_proxy {$UI_URL:ui:5173} {
                 header_up Host {host}
@@ -30,6 +27,7 @@
         }
     }
 
+    # Fallback for other hosts
     handle {
         header Content-Type text/plain
         respond "Appa Ingress: No route configured for {host}" 404

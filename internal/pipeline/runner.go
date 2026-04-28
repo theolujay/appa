@@ -93,7 +93,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, deploymentID, imageTag st
 				HostPort: fmt.Sprintf("%d", hostPort),
 			}},
 		},
-		AutoRemove: true,
+		AutoRemove: false,
 	}
 
 	createResp, err := dockerClient.ContainerCreate(ctx, client.ContainerCreateOptions{
@@ -111,41 +111,42 @@ func (p *Pipeline) StartContainer(ctx context.Context, deploymentID, imageTag st
 
 	_, err = dockerClient.ContainerStart(ctx, createResp.ID, client.ContainerStartOptions{})
 	if err != nil {
+		// p.mu.Unlock()
 		return "", fmt.Errorf("failed to start container: %w", err)
 	}
+	// p.mu.Unlock()
 
-	p.store.AppendLog(deploymentID, "deploy", fmt.Sprintf("waiting for container to respond on port %d...", hostPort))
+	msg := fmt.Sprintf("waiting for container to respond on port %d...", hostPort)
+	id, _ := p.store.AppendLog(deploymentID, "deploy", msg)
+	p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
 
 	address := fmt.Sprintf("host.docker.internal:%d", hostPort)
-	localAddr := fmt.Sprintf("127.0.0.1:%d", hostPort)
 
 	healthy := false
-	for range 30 { // wait up to 30 seconds
-		conn1, err := net.DialTimeout("tcp", localAddr, 1*time.Second)
-
-		if err != nil {
-			conn2, err := net.DialTimeout("tcp", address, 1*time.Second)
-			if err == nil {
-				conn2.Close()
-				healthy = true
-				break
-			}
-		} else {
-			conn1.Close()
+	for range 60 { // wait up to 30 seconds (60 * 500ms)
+		conn, err := net.DialTimeout("tcp", address, 500*time.Millisecond)
+		if err == nil {
+			conn.Close()
 			healthy = true
 			break
 		}
-		time.Sleep(1 * time.Second)
+		time.Sleep(500 * time.Millisecond)
 	}
 
 	if !healthy {
-		p.store.AppendLog(deploymentID, "deploy", "warning: container port did not respond in time, assuming running anyway")
+		msg := "container failed to start"
+		id, _ := p.store.AppendLog(deploymentID, "deploy", msg)
+		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
+		return "", fmt.Errorf("container did not respond on port %d", hostPort)
 	} else {
-		p.store.AppendLog(deploymentID, "deploy", "container is healthy and accepting connections")
+		msg := "container is healthy and accepting connections"
+		id, _ := p.store.AppendLog(deploymentID, "deploy", msg)
+		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
 	}
 
 	go func() {
-		logReader, err := dockerClient.ContainerLogs(ctx, createResp.ID, client.ContainerLogsOptions{
+		logCtx := context.Background()
+		logReader, err := dockerClient.ContainerLogs(logCtx, createResp.ID, client.ContainerLogsOptions{
 			ShowStdout: true,
 			ShowStderr: true,
 			Follow:     true, // keep streaming

@@ -377,7 +377,7 @@ export function Dashboard() {
             <LogPanel
               key={selectedDeployment.id}
               deploymentId={selectedDeployment.id}
-              onStatusUpdate={(status, url) => handleStatusUpdate(selectedDeployment.id, status, url)}
+              onStatusUpdate={handleStatusUpdate}
             />
           </>
         ) : (
@@ -399,7 +399,7 @@ function LogPanel({
   onStatusUpdate
 }: {
   deploymentId: string;
-  onStatusUpdate: (status: Deployment['status'], url?: string) => void
+  onStatusUpdate: (id: string, status: Deployment['status'], url?: string) => void
 }) {
   const { addToast } = useToast()
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -428,7 +428,10 @@ function LogPanel({
       const ws = new WebSocket(`${WS_BASE}/deployments/${deploymentId}/logs`)
       wsRef.current = ws
 
-      ws.onopen = () => setWsStatus('connected')
+      ws.onopen = () => {
+        setWsStatus('connected')
+        // setLogs([]) // Clear logs on successful (re)connect to prevent duplication
+      }
 
       ws.onmessage = (event) => {
         try {
@@ -436,7 +439,7 @@ function LogPanel({
           if (data.type === 'log') {
             setLogs((prev) => [...prev, { time: new Date(), text: data.log.line }])
           } else if (data.type === 'status') {
-            onStatusUpdate(data.status.status, data.status.url)
+            onStatusUpdate(deploymentId, data.status.status, data.status.url)
             addToast(`Deployment is now ${data.status.status}`, 'info')
           }
         } catch {

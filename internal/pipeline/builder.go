@@ -39,7 +39,8 @@ func (p *Pipeline) Build(ctx context.Context, deploymentID, source string) (stri
 	var buildDir string
 	if isLocal {
 		buildDir = source
-		p.store.AppendLog(deploymentID, "build", "using uploaded project files")
+		id, _ := p.store.AppendLog(deploymentID, "build", "using uploaded project files")
+		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: "using uploaded project files"})
 	} else {
 		// Create a temporary directory to clone the source repository into,
 		// then clean it up afterwards
@@ -51,13 +52,17 @@ func (p *Pipeline) Build(ctx context.Context, deploymentID, source string) (stri
 		buildDir = tmpDir
 
 		// Clone the repository into the temp directory, and stream it in logs
-		p.store.AppendLog(deploymentID, "build", fmt.Sprintf("cloning %s", source))
+		msg := fmt.Sprintf("cloning %s", source)
+		id, _ := p.store.AppendLog(deploymentID, "build", msg)
+		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
+
 		cloneCmd := exec.CommandContext(ctx, "git", "clone", "--quiet", "--depth=1", source, buildDir)
 		cloneOut, err := cloneCmd.CombinedOutput()
 		if err != nil {
 			return "", fmt.Errorf("git clone failed: %s", string(cloneOut))
 		}
-		p.store.AppendLog(deploymentID, "build", "clone complete")
+		id, _ = p.store.AppendLog(deploymentID, "build", "clone complete")
+		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: "clone complete"})
 	}
 
 	// Create a context that will automatically cancel after 10 minutes

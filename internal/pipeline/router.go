@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 // Caddy JSON Spec-compliant structs
@@ -50,10 +51,13 @@ func (p *Pipeline) AddRoute(deploymentID, address string) error {
 	route := caddyRoute{
 		ID: routeID,
 		Match: []caddyMatch{
-			{Path: []string{
-				fmt.Sprintf("/deploys/%s", deploymentID),
-				fmt.Sprintf("/deploys/%s/*", deploymentID),
-			}},
+			{
+				Host: []string{"localhost", "127.0.0.1"},
+				Path: []string{
+					fmt.Sprintf("/deploys/%s", deploymentID),
+					fmt.Sprintf("/deploys/%s/*", deploymentID),
+				},
+			},
 		},
 		Handle: []caddyHandle{
 			{
@@ -73,9 +77,12 @@ func (p *Pipeline) AddRoute(deploymentID, address string) error {
 		return fmt.Errorf("failed to marshal route: %w", err)
 	}
 
+	fmt.Printf("[DEBUG] Prepending route for %s to Caddy\n", deploymentID)
+
 	// Prepend to srv0 routes array
 	url := "http://caddy:2019/config/apps/http/servers/srv0/routes/0"
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("caddy admin api unreachable: %w", err)
 	}
