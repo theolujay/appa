@@ -5,13 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/netip"
 	"strings"
 	"time"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 	"github.com/theolujay/appa/internal/hub"
 	"github.com/theolujay/appa/internal/store"
@@ -68,12 +66,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, deploymentID, imageTag st
 		}
 	}
 
-	containerPort, err := network.ParsePort(containerPortStr)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse container port: %w", err)
-	}
-
-	// Prepare environment variables
+	// prepare env vars
 	deployment, _ := p.store.GetDeployment(deploymentID)
 	var env []string
 	if deployment.EnvVars != nil && *deployment.EnvVars != "" {
@@ -86,18 +79,15 @@ func (p *Pipeline) StartContainer(ctx context.Context, deploymentID, imageTag st
 		}
 	}
 
+	containerName := fmt.Sprintf("appa-%s", deploymentID)
+
 	hostConfig := &container.HostConfig{
-		PortBindings: network.PortMap{
-			containerPort: []network.PortBinding{{
-				HostIP:   netip.MustParseAddr("0.0.0.0"),
-				HostPort: fmt.Sprintf("%d", hostPort),
-			}},
-		},
-		AutoRemove: false,
+		NetworkMode: "appa_net",
+		AutoRemove:  false,
 	}
 
 	createResp, err := dockerClient.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Name: fmt.Sprintf("appa-%s", deploymentID),
+		Name: containerName,
 		Config: &container.Config{
 			Image: imageTag,
 			Env:   env,
@@ -111,16 +101,14 @@ func (p *Pipeline) StartContainer(ctx context.Context, deploymentID, imageTag st
 
 	_, err = dockerClient.ContainerStart(ctx, createResp.ID, client.ContainerStartOptions{})
 	if err != nil {
-		// p.mu.Unlock()
 		return "", fmt.Errorf("failed to start container: %w", err)
 	}
-	// p.mu.Unlock()
 
-	msg := fmt.Sprintf("waiting for container to respond on port %d...", hostPort)
+	address := net.JoinHostPort(containerName, strings.Split(containerPortStr, "/")[0])
+
+	msg := fmt.Sprintf("waiting for container %s to respond...", address)
 	id, _ := p.store.AppendLog(deploymentID, "deploy", msg)
 	p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
-
-	address := fmt.Sprintf("host.docker.internal:%d", hostPort)
 
 	healthy := false
 	for range 60 { // wait up to 30 seconds (60 * 500ms)

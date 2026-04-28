@@ -79,7 +79,7 @@ func (p *Pipeline) Run(deploymentID, source string) {
 	}
 
 	// Construct the public URL from the deployment ID using subdomain format.
-	url := fmt.Sprintf("http://localhost/deploys/%s", deploymentID)
+	url := fmt.Sprintf("http://%s.localhost", deploymentID)
 
 	status = store.RUNNING
 	p.store.UpdateDeployment(deploymentID, store.DeploymentUpdate{

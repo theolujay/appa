@@ -52,21 +52,22 @@ func (p *Pipeline) AddRoute(deploymentID, address string) error {
 		ID: routeID,
 		Match: []caddyMatch{
 			{
-				Host: []string{"localhost", "127.0.0.1"},
-				Path: []string{
-					fmt.Sprintf("/deploys/%s", deploymentID),
-					fmt.Sprintf("/deploys/%s/*", deploymentID),
-				},
+				Host: []string{fmt.Sprintf("%s.localhost", deploymentID)},
 			},
 		},
 		Handle: []caddyHandle{
 			{
-				Handler:         "rewrite",
-				StripPathPrefix: fmt.Sprintf("/deploys/%s", deploymentID),
-			},
-			{
 				Handler:   "reverse_proxy",
 				Upstreams: []caddyUpstream{{Dial: address}},
+				Headers: &caddyHeaderOpsWrapper{
+					Request: &caddyHeaderOps{
+						Set: map[string][]string{
+							"Host":              []string{"{http.request.host}"},
+							"X-Forwarded-Host":  []string{"{http.request.host}"},
+							"X-Forwarded-Proto": []string{"{http.request.scheme}"},
+						},
+					},
+				},
 			},
 		},
 		Terminal: true,

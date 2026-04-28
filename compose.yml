@@ -17,6 +17,8 @@ services:
       BUILDKIT_HOST: "docker-container://buildkit"
       DOCKER_HOST: "unix:///var/run/docker.sock"
     image: "api:dev"
+    networks:
+      - "appa_net"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - api_data:/data
@@ -25,6 +27,8 @@ services:
   buildkit:
     image: moby/buildkit:latest
     container_name: buildkit
+    networks:
+      - "appa_net"
     privileged: true
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -40,6 +44,8 @@ services:
       - caddy_config:/config
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - "appa_net"
 
   ui:
     build:
@@ -53,6 +59,8 @@ services:
           path: ./ui/src
           target: /app/src
     image: "ui:dev"
+    networks:
+      - "appa_net"
     volumes:
       - ./ui:/app
       - /app/node_modules
@@ -62,3 +70,8 @@ volumes:
   caddy_data:
   caddy_config:
   railpack_cache:
+
+networks:
+  appa_net:
+    name: appa_net
+    driver: bridge

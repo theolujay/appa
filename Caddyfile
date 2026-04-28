@@ -1,35 +1,18 @@
 {
-    admin 0.0.0.0:2019
-    auto_https off
+	admin 0.0.0.0:2019
+	auto_https off
 }
 
-:80 {
-    log {
-        output stdout
-    }
+localhost:80, 127.0.0.1:80 {
+	handle /deployments* {
+		reverse_proxy api:8080
+	}
 
-    @dashboard host localhost 127.0.0.1
+	handle /health {
+		reverse_proxy api:8080
+	}
 
-    handle @dashboard {
-        # API Proxy
-        handle /deployments* {
-            reverse_proxy {$API_URL:api:8080} {
-                header_up Host {host}
-                header_up X-Real-IP {remote_host}
-            }
-        }
-
-        # Frontend Proxy (Vite)
-        handle {
-            reverse_proxy {$UI_URL:ui:5173} {
-                header_up Host {host}
-            }
-        }
-    }
-
-    # Fallback for other hosts
-    handle {
-        header Content-Type text/plain
-        respond "Appa Ingress: No route configured for {host}" 404
-    }
+	handle {
+		reverse_proxy ui:5173
+	}
 }
