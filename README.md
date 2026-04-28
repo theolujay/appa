@@ -2,7 +2,7 @@
 
 **Appa** is a minimal, zero-config deployment platform that handles building, orchestration, and routing with ease.
 
-![alt text](image.png)
+![alt text](main.png)
 
 ### [What this project is about]
 
