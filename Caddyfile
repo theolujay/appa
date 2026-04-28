@@ -1,0 +1,37 @@
+{
+    admin 0.0.0.0:2019
+    auto_https off
+}
+
+:80 {
+    log {
+        output stdout
+    }
+
+    @dashboard host localhost 127.0.0.1
+
+    handle @dashboard {
+
+        handle /deploys/* {
+            respond "Deployment not found or not yet running" 502
+        }
+
+        handle /deployments* {
+            reverse_proxy {$API_URL:api:8080} {
+                header_up Host {host}
+                header_up X-Real-Ip {remote_host}
+            }
+        }
+
+        handle {
+            reverse_proxy {$UI_URL:ui:5173} {
+                header_up Host {host}
+            }
+        }
+    }
+
+    handle {
+        header Content-Type text/plain
+        respond "Appa Ingress: No route configured for {host}" 404
+    }
+}

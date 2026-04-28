@@ -1,24 +1,43 @@
 package hub
 
+type MessageType string
+
+const (
+	MessageTypeLog    MessageType = "log"
+	MessageTypeStatus MessageType = "status"
+)
+
+type LogMessage struct {
+	ID   int64  `json:"id"`
+	Line string `json:"line"`
+}
+
+type StatusUpdate struct {
+	Status string `json:"status"`
+	URL    string `json:"url,omitempty"`
+}
+
+type Event struct {
+	Type   MessageType   `json:"type"`
+	Log    *LogMessage   `json:"log,omitempty"`
+	Status *StatusUpdate `json:"status,omitempty"`
+}
+
 type Client struct {
 	DeploymentID string
-	Send         chan string
+	Send         chan Event
 }
 
 type Hub struct {
-	// subscribers maps a deployment ID to the set of clients watching it.
-	// The inner map uses the Client pointer as a key, acting as a set.
 	subscribers map[string]map[*Client]struct{}
-	// These three channels are how the outside world communicate with the hub
-	register   chan *Client
-	unregister chan *Client
-	broadcast  chan Message
+	register    chan *Client
+	unregister  chan *Client
+	broadcast   chan InternalMessage
 }
 
-// What the pipeline sends when it produces a log line.
-type Message struct {
+type InternalMessage struct {
 	DeploymentID string
-	Line         string
+	Event        Event
 }
 
 func New() *Hub {
@@ -26,11 +45,11 @@ func New() *Hub {
 		subscribers: make(map[string]map[*Client]struct{}),
 		register:    make(chan *Client),
 		unregister:  make(chan *Client),
-		broadcast:   make(chan Message),
+		broadcast:   make(chan InternalMessage),
 	}
 }
 
-func NewClient(deploymentID string, send chan string) *Client {
+func NewClient(deploymentID string, send chan Event) *Client {
 	return &Client{DeploymentID: deploymentID, Send: send}
 }
 
@@ -46,7 +65,6 @@ func (h *Hub) Run() {
 	for {
 		select {
 		case c := <-h.register:
-			// Ensure the inner set exists for this deployment
 			if h.subscribers[c.DeploymentID] == nil {
 				h.subscribers[c.DeploymentID] = make(map[*Client]struct{})
 			}
@@ -54,15 +72,12 @@ func (h *Hub) Run() {
 		case c := <-h.unregister:
 			if clients, ok := h.subscribers[c.DeploymentID]; ok {
 				delete(clients, c)
-				close(c.Send) // signal the write goroutine to stop
+				close(c.Send)
 			}
 		case msg := <-h.broadcast:
-			// Send the log line to every Client subscribed to this deployment.
 			for c := range h.subscribers[msg.DeploymentID] {
-				// Non-blocking Send -- if the Client's buffer is full,
-				// we drop the message rather than block the entire hub.
 				select {
-				case c.Send <- msg.Line:
+				case c.Send <- msg.Event:
 				default:
 					delete(h.subscribers[msg.DeploymentID], c)
 					close(c.Send)
@@ -72,6 +87,25 @@ func (h *Hub) Run() {
 	}
 }
 
-func (h *Hub) Publish(DeploymentID, line string) {
-	h.broadcast <- Message{DeploymentID: DeploymentID, Line: line}
+func (h *Hub) PublishLog(deploymentID string, log LogMessage) {
+	h.broadcast <- InternalMessage{
+		DeploymentID: deploymentID,
+		Event: Event{
+			Type: MessageTypeLog,
+			Log:  &log,
+		},
+	}
+}
+
+func (h *Hub) PublishStatus(deploymentID string, status string, url string) {
+	h.broadcast <- InternalMessage{
+		DeploymentID: deploymentID,
+		Event: Event{
+			Type: MessageTypeStatus,
+			Status: &StatusUpdate{
+				Status: status,
+				URL:    url,
+			},
+		},
+	}
 }

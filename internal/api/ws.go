@@ -36,59 +36,72 @@ func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing deployment id", http.StatusBadRequest)
 		return
 	}
+
 	// HTTP -> WS
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("websocket upgrade failed: %v", err)
 		return
 	}
-	// Create a buffered channel for this client. Buffer size of 256 means
-	// the hub can queue up to 256 unsent log lines before considering the
-	// cient too slow and dropping it
-	send := make(chan string, 256)
-	// Register this client with the hub so it starts receiving live log lines.
-	c := hub.NewClient(id, send)
-	h.hub.Register(c)
-	// Replay all historical log lines from the database before switching to
-	// live streaming.
+
+	// Replay all historical logs before switching to live streaming.
 	logs, err := h.store.GetLogs(id)
 	if err != nil {
 		log.Printf("failed to fetch historical logs for %s: %v", id, err)
 	}
-	for _, line := range logs {
-		send <- line
+
+	var lastHistoryID int64
+	if len(logs) > 0 {
+		lastHistoryID = logs[len(logs)-1].ID
 	}
-	// Run the write pump in a goroutine and the read pump in this goroutine.
-	// We keep the read pump on the main goroutine because it is the one that
-	// drives connections lifecycle -- when it returns, we know the client is gone
-	go writePump(conn, send)
-	readPump(conn, send, h.hub, c)
+
+	// Register for live logs by creating a buffered channel for this client.
+	// Buffer size of 256 means the hub can queue up to 256 unsent log lines
+	// before considering the cient too slow and dropping it
+	send := make(chan hub.Event, 256)
+	c := hub.NewClient(id, send)
+	h.hub.Register(c)
+	// Send history to client as "log" events
+	for _, l := range logs {
+		event := hub.Event{
+			Type: hub.MessageTypeLog,
+			Log:  &hub.LogMessage{ID: l.ID, Line: l.Line},
+		}
+		if err := conn.WriteJSON(event); err != nil {
+			h.hub.Unregister(c)
+			conn.Close()
+			return
+		}
+	}
+
+	go writePump(conn, send, lastHistoryID)
+	readPump(conn, h.hub, c)
 }
 
 // drains the send channel and writes each line to the WebSocket.
 // It also sends periodic pings to detect dead connections.
-func writePump(conn *websocket.Conn, send <-chan string) {
+func writePump(conn *websocket.Conn, send <-chan hub.Event, lastHistoryID int64) {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
-		ticker.Stop() // this isn't necessary (Go 1.23+), but call it anyway to be sure
+		ticker.Stop() // this isn't necessary (in Go 1.23+), but call it anyway to be sure
 		conn.Close()
 	}()
 
 	for {
 		select {
-		case line, ok := <-send:
+		case event, ok := <-send:
 			if !ok {
-				// The hub closed the channel -- the deployment is done or the
-				// client was removed. Send close frame and exit.
 				conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := conn.WriteMessage(websocket.TextMessage, []byte(line)); err != nil {
+			// Skip logs already sent as part of history
+			if event.Type == hub.MessageTypeLog && event.Log != nil && event.Log.ID <= lastHistoryID {
+				continue
+			}
+			if err := conn.WriteJSON(event); err != nil {
 				return
 			}
 		case <-ticker.C:
-			// Send a ping. If the client doesn't respond with a pong within pongWait,
-			// the read pump will detect the deadline exceeded an exit.
 			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
@@ -98,7 +111,7 @@ func writePump(conn *websocket.Conn, send <-chan string) {
 
 // reads from the WebSocket to handle pongs and detect disconnection.
 // When the clinet disconnects, it unregisters them from the hub and returns
-func readPump(conn *websocket.Conn, send chan string, h *hub.Hub, c *hub.Client) {
+func readPump(conn *websocket.Conn, h *hub.Hub, c *hub.Client) {
 	defer func() {
 		h.Unregister(c)
 		conn.Close()
@@ -106,7 +119,6 @@ func readPump(conn *websocket.Conn, send chan string, h *hub.Hub, c *hub.Client)
 
 	conn.SetReadLimit(maxMessageSize)
 	conn.SetReadDeadline(time.Now().Add(pongWait))
-
 	// reset the deadline every time we receive a pong... this is the heartbeat
 	// mechanism. No pong within pongWait means the client is gone.
 	conn.SetPongHandler(func(string) error {
@@ -114,8 +126,7 @@ func readPump(conn *websocket.Conn, send chan string, h *hub.Hub, c *hub.Client)
 		return nil
 	})
 
-	// Block here, reading indefinitely. We discard any messages the client sends,
-	// as we only care about the pong responses and connection errors.
+	// Discard any messages the client sends
 	for {
 		if _, _, err := conn.ReadMessage(); err != nil {
 			return

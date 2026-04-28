@@ -2,12 +2,42 @@ package store
 
 import (
 	"database/sql"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
 
+const (
+	PENDING   string = "pending"
+	BUILDING  string = "building"
+	DEPLOYING string = "deploying"
+	RUNNING   string = "running"
+	CANCELED  string = "canceled"
+	STOPPED   string = "stopped"
+	FAILED    string = "failed"
+)
+
 type Store struct {
 	db *sql.DB
+}
+
+type Deployment struct {
+	ID        string  `json:"id"`
+	Source    string  `json:"source"`
+	Status    string  `json:"status"`
+	ImageTag  *string `json:"image_tag"`
+	Address   *string `json:"address"`
+	EnvVars   *string `json:"env_vars"`
+	URL       *string `json:"url"`
+	CreatedAt string  `json:"created_at"`
+}
+
+type DeploymentUpdate struct {
+	Status   *string
+	ImageTag *string
+	Address  *string
+	EnvVars  *string
+	URL      *string
 }
 
 func New(dsn string) (*Store, error) {
@@ -18,23 +48,30 @@ func New(dsn string) (*Store, error) {
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
-	if _, err := db.Exec("PRAGMA forerign_keys = ON"); err != nil {
+	// enforce foreign keys, as SQLite doesn't do that by default
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return nil, err
+	}
+	// WAL mode allows conccurent readers alongside a writer.
+	// Without this, any read during a write returns SQLITE_BUSY
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		return nil, err
+	}
+	// Wait up to 5 seconds for a lock to clear before returning SQLITE_BUSY
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
 		return nil, err
 	}
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
 		return nil, err
 	}
-	return s, nil
-}
 
-func (s *Store) CreateDeployment(id, source string) error {
-	_, err := s.db.Exec(
-		`INSERT INTO deployments (id, source, status, created_at)
-		VALUES (?, ?, 'pending', datetime('now'))`,
-		id, source,
-	)
-	return err
+	// Allow multiple connections so WAL mode can handle concurrent readers/writers.
+	// This prevents the WebSocket handshake from blocking during heavy build logging.
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(time.Hour)
+	return s, nil
 }
 
 func (s *Store) migrate() error {
@@ -44,6 +81,8 @@ func (s *Store) migrate() error {
 			source		TEXT NOT NULL,
 			status		TEXT NOT NULL DEFAULT 'pending',
 			image_tag	TEXT,
+			address		TEXT,
+			env_vars    TEXT,
 			url			TEXT,
 			created_at	DATETIME NOT NULL DEFAULT (datetime('now'))
 		);
@@ -59,9 +98,88 @@ func (s *Store) migrate() error {
 	return err
 }
 
-func (s *Store) GetLogs(deploymentID string) ([]string, error) {
+func (s *Store) CreateDeployment(id, source string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO deployments (id, source, status, created_at)
+		VALUES (?, ?, 'pending', datetime('now'))`,
+		id, source,
+	)
+	return err
+}
+
+// Add New method specifically for deployments with env vars
+func (s *Store) CreateDeploymentWithEnv(id, source, envVars string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO deployments (id, source, status, env_vars, created_at)
+		VALUES (?, ?, 'pending', ?, datetime('now'))`,
+		id, source, envVars,
+	)
+	return err
+}
+
+func (s *Store) GetDeployment(id string) (Deployment, error) {
 	rows, err := s.db.Query(
-		`SELECT line FROM TABLE logs WHERE deployment_id = ? ORDER BY ts ASC`,
+		`SELECT id, source, status, image_tag, address, env_vars, url, created_at
+		FROM deployments WHERE id = ?`, id,
+	)
+	if err != nil {
+		return Deployment{}, err
+	}
+	defer rows.Close()
+
+	var deployments []Deployment
+
+	for rows.Next() {
+		var d Deployment
+		err := rows.Scan(&d.ID, &d.Source, &d.Status, &d.ImageTag, &d.Address, &d.EnvVars, &d.URL, &d.CreatedAt)
+		if err != nil {
+			return Deployment{}, err
+		}
+		deployments = append(deployments, d)
+	}
+	if len(deployments) == 0 {
+		return Deployment{}, sql.ErrNoRows
+	}
+	return deployments[0], nil
+}
+
+func (s *Store) ListDeployments() ([]Deployment, error) {
+	rows, err := s.db.Query(`
+        SELECT id, source, status, image_tag, address, env_vars, url, created_at
+        FROM deployments
+        ORDER BY created_at DESC
+    `)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var deployments []Deployment
+
+	for rows.Next() {
+		var d Deployment
+		err := rows.Scan(&d.ID, &d.Source, &d.Status, &d.ImageTag, &d.Address, &d.EnvVars, &d.URL, &d.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		deployments = append(deployments, d)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return deployments, nil
+}
+
+type LogEntry struct {
+	ID   int64  `json:"id"`
+	Line string `json:"line"`
+}
+
+func (s *Store) GetLogs(deploymentID string) ([]LogEntry, error) {
+	rows, err := s.db.Query(
+		`SELECT id, line FROM logs WHERE deployment_id = ? ORDER BY id ASC`,
 		deploymentID,
 	)
 	if err != nil {
@@ -69,37 +187,63 @@ func (s *Store) GetLogs(deploymentID string) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var logs []string
+	var logs []LogEntry
 	for rows.Next() {
-		var line string
-		if err := rows.Scan(&line); err != nil {
+		var l LogEntry
+		if err := rows.Scan(&l.ID, &l.Line); err != nil {
 			return nil, err
 		}
-		logs = append(logs, line)
+		logs = append(logs, l)
 	}
 	return logs, rows.Err()
 }
 
-func (s *Store) UpdateDeploymentStatus(deploymentID, status string) error {
-	_, err := s.db.Exec(
-		`UPDATE deployments SET status = ? WHERE id = ?`,
-		status, deploymentID,
-	)
-	return err
-}
-
-func (s *Store) AppendLog(deploymentID, phase, line string) error {
-	_, err := s.db.Exec(
+func (s *Store) AppendLog(deploymentID, phase, line string) (int64, error) {
+	res, err := s.db.Exec(
 		`INSERT INTO logs (deployment_id, phase, line) VALUES (?, ?, ?)`,
 		deploymentID, phase, line,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
 }
 
-func (s *Store) UpdateDeploymentURL(deploymentID, url string) error {
-	_, err := s.db.Exec(
-		`UPDATE deployments SET url = ? WHERE id = ?`,
-		url, deploymentID,
-	)
-	return err
+func (s *Store) UpdateDeployment(id string, u DeploymentUpdate) error {
+	if u.Status != nil {
+		if _, err := s.db.Exec(
+			`UPDATE deployments SET status = ? WHERE id = ?`, *u.Status, id,
+		); err != nil {
+			return err
+		}
+	}
+	if u.ImageTag != nil {
+		if _, err := s.db.Exec(
+			`UPDATE deployments SET image_tag = ? WHERE id = ?`, *u.ImageTag, id,
+		); err != nil {
+			return err
+		}
+	}
+	if u.Address != nil {
+		if _, err := s.db.Exec(
+			`UPDATE deployments SET address = ? WHERE id = ?`, *u.Address, id,
+		); err != nil {
+			return err
+		}
+	}
+	if u.EnvVars != nil {
+		if _, err := s.db.Exec(
+			`UPDATE deployments SET env_vars = ? WHERE id = ?`, *u.EnvVars, id,
+		); err != nil {
+			return err
+		}
+	}
+	if u.URL != nil {
+		if _, err := s.db.Exec(
+			`UPDATE deployments SET url = ? WHERE id = ?`, *u.URL, id,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }

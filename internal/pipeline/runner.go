@@ -6,62 +6,102 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
+	"github.com/theolujay/appa/internal/hub"
+	"github.com/theolujay/appa/internal/store"
 )
 
 // StartContainer starts a container from the given image tag and streams its logs
 // to the hub and he database. It returns the host:port address of the
 // running contianer so the router can configure Caddy to point at it.
-func (p *Pipeline) StartContainer(deploymentID, imageTag string) (string, error) {
-	if err := p.store.UpdateDeploymentStatus(deploymentID, "deploying"); err != nil {
+func (p *Pipeline) StartContainer(ctx context.Context, deploymentID, imageTag string) (string, error) {
+	status := store.DEPLOYING
+	if err := p.store.UpdateDeployment(deploymentID, store.DeploymentUpdate{Status: &status}); err != nil {
 		return "", fmt.Errorf("failed to update status: %w", err)
 	}
+	p.hub.PublishStatus(deploymentID, status, "")
 
-	// Create a Docker client that connects to the daemon via the Unix
-	// socket available at /var/run/docker.sock and mount it into the
-	// project's API container in compose.yml
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	dockerClient, err := client.New(client.FromEnv)
 	if err != nil {
 		return "", fmt.Errorf("failed to create docker client: %w", err)
 	}
 	defer dockerClient.Close()
 
-	// Find a free port on the host for this container so the address is known
-	// upfront before creating the container
 	hostPort, err := getFreePort()
 	if err != nil {
 		return "", fmt.Errorf("filed to find free port: %w", err)
 	}
 
-	ctx := context.Background()
+	imageInspectResult, err := dockerClient.ImageInspect(ctx, imageTag)
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect image: %w", err)
+	}
 
-	containerPort, err := network.ParsePort("3000/tcp")
+	containerPortStr := "3000/tcp"
+
+	// If the image explicitly exposes ports, use the first one
+	if len(imageInspectResult.Config.ExposedPorts) > 0 {
+		for port := range imageInspectResult.Config.ExposedPorts {
+			containerPortStr = string(port)
+			break
+		}
+	} else {
+		cmd := ""
+		if imageInspectResult.Config.Entrypoint != nil {
+			cmd += strings.Join(imageInspectResult.Config.Entrypoint, " ")
+		}
+		if imageInspectResult.Config.Cmd != nil {
+			cmd += " " + strings.Join(imageInspectResult.Config.Cmd, " ")
+		}
+
+		if strings.Contains(cmd, "caddy run") || strings.Contains(cmd, "http-server") {
+			containerPortStr = "80/tcp"
+		}
+	}
+
+	containerPort, err := network.ParsePort(containerPortStr)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse container port: %w", err)
 	}
 
+	// Prepare environment variables
+	deployment, _ := p.store.GetDeployment(deploymentID)
+	var env []string
+	if deployment.EnvVars != nil && *deployment.EnvVars != "" {
+		lines := strings.Split(*deployment.EnvVars, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				env = append(env, line)
+			}
+		}
+	}
+
 	hostConfig := &container.HostConfig{
-		// The PortBindings map tells Docker to bind the host port to a select container port.
 		PortBindings: network.PortMap{
 			containerPort: []network.PortBinding{{
 				HostIP:   netip.MustParseAddr("0.0.0.0"),
 				HostPort: fmt.Sprintf("%d", hostPort),
 			}},
 		},
-		// AutoRemove means Docker cleans up the container when it stops,
-		// so we don't accumulate dead containers on the host over time.
 		AutoRemove: true,
 	}
-	// Create the container. Give it a deterministic name derived from deploymentId
-	// for future reference for rollbacks or restarts.
-	resp, err := dockerClient.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Name:       fmt.Sprintf("appa-%s", deploymentID),
-		Config:     &container.Config{Image: imageTag},
+
+	createResp, err := dockerClient.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Name: fmt.Sprintf("appa-%s", deploymentID),
+		Config: &container.Config{
+			Image: imageTag,
+			Env:   env,
+		},
 		HostConfig: hostConfig,
 	})
 
@@ -69,20 +109,43 @@ func (p *Pipeline) StartContainer(deploymentID, imageTag string) (string, error)
 		return "", fmt.Errorf("failed to create container: %w", err)
 	}
 
-	// Start the container. At this point the process inside the container
-	// is running, but it's not confirmed it's healthy yet.
-	_, err = dockerClient.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{})
-
+	_, err = dockerClient.ContainerStart(ctx, createResp.ID, client.ContainerStartOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to start container: %w", err)
 	}
 
-	// Give some time to start up before declaring it running
-	time.Sleep(2 * time.Second)
+	p.store.AppendLog(deploymentID, "deploy", fmt.Sprintf("waiting for container to respond on port %d...", hostPort))
 
-	// Stream container's logs in the background
+	address := fmt.Sprintf("host.docker.internal:%d", hostPort)
+	localAddr := fmt.Sprintf("127.0.0.1:%d", hostPort)
+
+	healthy := false
+	for range 30 { // wait up to 30 seconds
+		conn1, err := net.DialTimeout("tcp", localAddr, 1*time.Second)
+
+		if err != nil {
+			conn2, err := net.DialTimeout("tcp", address, 1*time.Second)
+			if err == nil {
+				conn2.Close()
+				healthy = true
+				break
+			}
+		} else {
+			conn1.Close()
+			healthy = true
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	if !healthy {
+		p.store.AppendLog(deploymentID, "deploy", "warning: container port did not respond in time, assuming running anyway")
+	} else {
+		p.store.AppendLog(deploymentID, "deploy", "container is healthy and accepting connections")
+	}
+
 	go func() {
-		logReader, err := dockerClient.ContainerLogs(ctx, resp.ID, client.ContainerLogsOptions{
+		logReader, err := dockerClient.ContainerLogs(ctx, createResp.ID, client.ContainerLogsOptions{
 			ShowStdout: true,
 			ShowStderr: true,
 			Follow:     true, // keep streaming
@@ -103,21 +166,53 @@ func (p *Pipeline) StartContainer(deploymentID, imageTag string) (string, error)
 		// Go's `/dev/null` (doing nothing with stderr)
 		go func() {
 			stdcopy.StdCopy(pw, io.Discard, logReader)
-			// Close the write end when done so pr gets an EOF and
-			// streamLogs knows there's nothing more to read.
 			pw.Close()
 		}()
 
-		// streamLogs reads clean, header-free lines from the read end of
-		// the pipe, exactly as it does with the exec.Command pipes in Build.
 		p.streamLogs(deploymentID, "deploy", pr)
 	}()
 
-	// This is the address the router will use to configure Caddy
-	// host.docker.internal allows Caddy (running in its own container)
-	// can reach the container running on the host's port binding.
-	address := fmt.Sprintf("host.docker.internal:%d", hostPort)
 	return address, nil
+}
+
+func (p *Pipeline) StopContainer(deploymentID string) error {
+	URL := ""
+	imageTag := ""
+	status := store.STOPPED
+
+	dockerClient, err := client.New(client.FromEnv)
+	if err != nil {
+		return fmt.Errorf("failed to create docker client: %w", err)
+	}
+	defer dockerClient.Close()
+
+	// Since AutoRemove: true was set in StartContainer,
+	// stopping the container will automatically delete it.
+	containerName := fmt.Sprintf("appa-%s", deploymentID)
+	if _, err := dockerClient.ContainerStop(context.Background(), containerName, client.ContainerStopOptions{}); err != nil {
+		if !strings.Contains(err.Error(), "No such container") {
+			return fmt.Errorf("failed to stop container %s: %w", containerName, err)
+		}
+	}
+	if err := p.RemoveRoute(deploymentID); err != nil {
+		fmt.Printf("failed to remove caddy route for %s: %v\n", deploymentID, err)
+	}
+
+	p.store.UpdateDeployment(
+		deploymentID,
+		store.DeploymentUpdate{
+			URL:      &URL,
+			Status:   &status,
+			ImageTag: &imageTag,
+		},
+	)
+
+	msg := "deployment stopped by user"
+	id, _ := p.store.AppendLog(deploymentID, "system", msg)
+	p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
+	p.hub.PublishStatus(deploymentID, status, "")
+
+	return nil
 }
 
 func getFreePort() (int, error) {

@@ -1,0 +1,6 @@
+./ui
+*.db
+*.db-wal
+*.db-shm
+.git
+tmp/

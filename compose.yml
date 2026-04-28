@@ -1,0 +1,64 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - caddy
+      - buildkit
+    develop:
+      watch:
+        - action: rebuild
+          path: ./
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      DATABASE_URL: "/data/deployments.db"
+      BUILDKIT_HOST: "docker-container://buildkit"
+      DOCKER_HOST: "unix:///var/run/docker.sock"
+    image: "api:dev"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - api_data:/data
+      - railpack_cache:/tmp/railpack
+
+  buildkit:
+    image: moby/buildkit:latest
+    container_name: buildkit
+    privileged: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  caddy:
+    image: caddy:2.11.2-alpine
+    ports:
+      - "80:80"
+      - "2019:2019"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    depends_on:
+      - api
+    develop:
+      watch:
+        - action: sync
+          path: ./ui/src
+          target: /app/src
+    image: "ui:dev"
+    volumes:
+      - ./ui:/app
+      - /app/node_modules
+
+volumes:
+  api_data:
+  caddy_data:
+  caddy_config:
+  railpack_cache:

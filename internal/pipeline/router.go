@@ -4,73 +4,105 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 )
 
-// Mirros the JSON structure Caddy expects when a route is added
-// via its Admin API.
+// Caddy JSON Spec-compliant structs
 type caddyRoute struct {
-	ID     string        `json:"@id"`
-	Match  []caddyMatch  `json:"match"`
-	Handle []caddyHandle `json:"handle"`
+	ID       string        `json:"@id,omitempty"`
+	Match    []caddyMatch  `json:"match,omitempty"`
+	Handle   []caddyHandle `json:"handle,omitempty"`
+	Terminal bool          `json:"terminal,omitempty"`
 }
 
 type caddyMatch struct {
-	Path []string `json:"path"`
+	Host []string `json:"host,omitempty"`
+	Path []string `json:"path,omitempty"`
 }
 
 type caddyHandle struct {
-	Handler   string          `json:"handler"`
-	Upstreams []caddyUpstream `json:"upstreams"`
+	Handler         string                 `json:"handler"`
+	Upstreams       []caddyUpstream        `json:"upstreams,omitempty"`
+	Headers         *caddyHeaderOpsWrapper `json:"headers,omitempty"`
+	StripPathPrefix string                 `json:"strip_path_prefix,omitempty"`
+}
+
+type caddyHeaderOpsWrapper struct {
+	Request *caddyHeaderOps `json:"request,omitempty"`
+}
+
+type caddyHeaderOps struct {
+	Set map[string][]string `json:"set,omitempty"`
 }
 
 type caddyUpstream struct {
-	// Dial is the host:port address of the upstream container
-	Dial string `json:"dial"`
+	Dial string `json:"dial,omitempty"`
 }
 
-// AddRoute registers a new reerse proxy route in Caddy's live configuration,
-// routing traffic from /deploys/<deploymentID>/* to the container at address.
-// This takes effect immediately... no Caddy restart required.
 func (p *Pipeline) AddRoute(deploymentID, address string) error {
-	truncDeployID := truncateDeploymentID(deploymentID)
+	routeID := fmt.Sprintf("deployment-%s", deploymentID)
+
+	// Ensure idempotency by removing old route
+	_ = p.RemoveRoute(deploymentID)
+
+	// Construct route according to Caddy JSON handler spec
 	route := caddyRoute{
-		ID: fmt.Sprintf("deployment-%s", truncDeployID),
+		ID: routeID,
 		Match: []caddyMatch{
-			{Path: []string{fmt.Sprintf("deploys/%s/*", truncDeployID)}},
+			{Path: []string{
+				fmt.Sprintf("/deploys/%s", deploymentID),
+				fmt.Sprintf("/deploys/%s/*", deploymentID),
+			}},
 		},
 		Handle: []caddyHandle{
 			{
-				Handler: "reverse_proxy",
-				Upstreams: []caddyUpstream{
-					{Dial: address},
-				},
+				Handler:         "rewrite",
+				StripPathPrefix: fmt.Sprintf("/deploys/%s", deploymentID),
+			},
+			{
+				Handler:   "reverse_proxy",
+				Upstreams: []caddyUpstream{{Dial: address}},
 			},
 		},
+		Terminal: true,
 	}
 
-	// Serialize the route struct to JSON. This will be sent to Caddy
 	body, err := json.Marshal(route)
 	if err != nil {
-		return fmt.Errorf("failed to marshal caddy route: %w", err)
+		return fmt.Errorf("failed to marshal route: %w", err)
 	}
 
-	// POST to Caddy's Admin API to append the new route to the route list.
-	// The URL assumes Caddy's Admin API is reachable at caddy:2019
-	// TODO: set Caddy's port as env var
-	resp, err := http.Post(
-		"http://caddy:2019/config/apps/http/servers/srv0/routes",
-		"application/json",
-		bytes.NewReader(body),
-	)
+	// Prepend to srv0 routes array
+	url := "http://caddy:2019/config/apps/http/servers/srv0/routes/0"
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("failed to reach caddy admin api: %w", err)
+		return fmt.Errorf("caddy admin api unreachable: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("caddy admin api returned unexpected status: %d", resp.StatusCode)
+	if resp.StatusCode >= 400 {
+		errBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("caddy rejected config (%d): %s", resp.StatusCode, string(errBody))
 	}
+
+	return nil
+}
+
+func (p *Pipeline) RemoveRoute(deploymentID string) error {
+	routeID := fmt.Sprintf("deployment-%s", deploymentID)
+	url := fmt.Sprintf("http://caddy:2019/id/%s", routeID)
+
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
 
 	return nil
 }
