@@ -1,4 +1,4 @@
-package api
+package main
 
 import (
 	"log"
@@ -30,7 +30,7 @@ var upgrader = websocket.Upgrader{
 
 // upgrades the conn to WS, replays historical logs for the given deployment
 // then streams live log lines until client disconnects or pipeline finishes
-func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request) {
+func (app *application) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
 		http.Error(w, "missing deployment id", http.StatusBadRequest)
@@ -45,7 +45,7 @@ func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Replay all historical logs before switching to live streaming.
-	logs, err := h.store.GetLogs(id)
+	logs, err := app.store.GetLogs(id)
 	if err != nil {
 		log.Printf("failed to fetch historical logs for %s: %v", id, err)
 	}
@@ -60,7 +60,7 @@ func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	// before considering the cient too slow and dropping it
 	send := make(chan hub.Event, 256)
 	c := hub.NewClient(id, send)
-	h.hub.Register(c)
+	app.hub.Register(c)
 	// Send history to client as "log" events
 	for _, l := range logs {
 		event := hub.Event{
@@ -68,14 +68,14 @@ func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 			Log:  &hub.LogMessage{ID: l.ID, Line: l.Line},
 		}
 		if err := conn.WriteJSON(event); err != nil {
-			h.hub.Unregister(c)
+			app.hub.Unregister(c)
 			conn.Close()
 			return
 		}
 	}
 
 	go writePump(conn, send, lastHistoryID)
-	readPump(conn, h.hub, c)
+	readPump(conn, app.hub, c)
 }
 
 // drains the send channel and writes each line to the WebSocket.
@@ -111,9 +111,9 @@ func writePump(conn *websocket.Conn, send <-chan hub.Event, lastHistoryID int64)
 
 // reads from the WebSocket to handle pongs and detect disconnection.
 // When the clinet disconnects, it unregisters them from the hub and returns
-func readPump(conn *websocket.Conn, h *hub.Hub, c *hub.Client) {
+func readPump(conn *websocket.Conn, app *hub.Hub, c *hub.Client) {
 	defer func() {
-		h.Unregister(c)
+		app.Unregister(c)
 		conn.Close()
 	}()
 

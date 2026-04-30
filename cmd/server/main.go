@@ -1,54 +1,58 @@
 package main
 
 import (
-	"fmt"
+	"flag"
 	"log"
 	"net/http"
 	"os"
 
-	"github.com/theolujay/appa/internal/api"
 	"github.com/theolujay/appa/internal/hub"
 	"github.com/theolujay/appa/internal/pipeline"
 	"github.com/theolujay/appa/internal/store"
 )
 
 func main() {
+	addr := flag.String("addr", ":8080", "HTTP network address")
+	flag.Parse()
+
+	infoLog := log.New(os.Stdout, "INFO\t", log.Ldate|log.Ltime|log.LUTC)
+	errorLog := log.New(os.Stderr, "ERROR\t", log.Ldate|log.Ltime|log.LUTC|log.Lshortfile)
+
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		dsn = "deployments.db"
 	}
 
-	s, err := store.New(dsn)
-
+	store, err := store.New(dsn)
 	if err != nil {
-		log.Fatalf("failed to initialise store: %v", err)
+		errorLog.Fatalf("failed to initialise store: %v", err)
 	}
 
-	broker := hub.New()
-	go broker.Run()
-	p := pipeline.New(s, broker)
+	hub := hub.New()
+	go hub.Run()
 
+	pipeline := pipeline.New(store, hub)
 	// Sync active deployment routes with Caddy on startup
-	if err := p.SyncRoutes(); err != nil {
-		log.Printf("failed to sync routes: %v", err)
+	if err := pipeline.SyncRoutes(); err != nil {
+		errorLog.Printf("failed to sync routes: %v", err)
 	}
 
-	h := api.New(s, p, broker)
+	app := &application{
+		errorLog: errorLog,
+		infoLog:  infoLog,
+		store:    store,
+		pipeline: pipeline,
+		hub:      hub,
+	}
 
-	mux := http.NewServeMux()
+	srv := &http.Server{
+		Addr:     *addr,
+		ErrorLog: errorLog,
+		Handler:  CORSMiddleware(app.routes()),
+	}
 
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "ok")
-	})
-
-	mux.HandleFunc("GET /deployments", h.ListDeployments)
-	mux.HandleFunc("POST /deployments", h.CreateDeployment)
-	mux.HandleFunc("POST /deployments/upload", h.UploadProject)
-	mux.HandleFunc("PATCH /deployments/{id}", h.CancelDeployment)
-	mux.HandleFunc("GET /deployments/{id}/logs", h.StreamLogs)
-
-	log.Println("server listening on :8080")
-	log.Fatal(http.ListenAndServe(":8080", api.CORSMiddleware(mux)))
+	infoLog.Printf("Starting server on %s", *addr)
+	err = srv.ListenAndServe()
+	errorLog.Fatal(err)
 
 }

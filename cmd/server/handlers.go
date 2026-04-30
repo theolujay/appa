@@ -1,10 +1,10 @@
-package api
+package main
 
 import (
 	"archive/zip"
 	"encoding/json"
-	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,41 +15,35 @@ import (
 	"github.com/theolujay/appa/internal/store"
 )
 
-type Handler struct {
+type application struct {
+	errorLog *log.Logger
+	infoLog  *log.Logger
 	store    *store.Store
 	pipeline *pipeline.Pipeline
 	hub      *hub.Hub
 }
 
-func New(s *store.Store, p *pipeline.Pipeline, h *hub.Hub) *Handler {
-	return &Handler{
-		store:    s,
-		pipeline: p,
-		hub:      h,
-	}
-}
-
-func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
+func (app *application) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Source  string `json:"source"`
 		EnvVars string `json:"env_vars"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		app.clientError(w, "", http.StatusBadRequest)
 		return
 	}
 	if input.Source == "" {
-		http.Error(w, "source is required", http.StatusBadRequest)
+		app.clientError(w, "source is required", http.StatusBadRequest)
 		return
 	}
 	id := uuid.New().String()
 	// Persist the deployment record immediately
-	if err := h.store.CreateDeploymentWithEnv(id, input.Source, input.EnvVars); err != nil {
-		http.Error(w, "failed to create deployment", http.StatusInternalServerError)
+	if err := app.store.CreateDeploymentWithEnv(id, input.Source, input.EnvVars); err != nil {
+		app.serverError(w, err)
 		return
 	}
 
-	go h.pipeline.Run(id, input.Source)
+	go app.pipeline.Run(id, input.Source)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -59,15 +53,15 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) UploadProject(w http.ResponseWriter, r *http.Request) {
+func (app *application) UploadProject(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(100 << 20); err != nil { // 100MB max
-		http.Error(w, "file too large", http.StatusBadRequest)
+		app.clientError(w, "file too large", http.StatusBadRequest)
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, "missing file", http.StatusBadRequest)
+		app.clientError(w, "missing file", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
@@ -77,19 +71,19 @@ func (h *Handler) UploadProject(w http.ResponseWriter, r *http.Request) {
 	id := uuid.New().String()
 	uploadDir := filepath.Join("/tmp", "appa-upload", id)
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		http.Error(w, "failed to create upload dir", http.StatusInternalServerError)
+		app.serverError(w, err)
 		return
 	}
 	if err := unzip(file, header.Size, uploadDir); err != nil {
-		http.Error(w, fmt.Sprintf("failed to unzip: %v", err), http.StatusBadRequest)
+		app.serverError(w, err)
 		return
 	}
-	if err := h.store.CreateDeploymentWithEnv(id, "uploaded-project", envVars); err != nil {
-		http.Error(w, "failed to create deployment", http.StatusInternalServerError)
+	if err := app.store.CreateDeploymentWithEnv(id, "uploaded-project", envVars); err != nil {
+		app.serverError(w, err)
 		return
 	}
 
-	go h.pipeline.Run(id, uploadDir)
+	go app.pipeline.Run(id, uploadDir)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -139,25 +133,24 @@ func unzip(r io.ReaderAt, size int64, dest string) error {
 	return nil
 }
 
-func (h *Handler) CancelDeployment(w http.ResponseWriter, r *http.Request) {
+func (app *application) CancelDeployment(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
-		http.Error(w, "missing deployment id", http.StatusBadRequest)
+		app.clientError(w, "missing deployment id", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.pipeline.Cancel(id); err != nil {
-		msg := fmt.Sprintf("failed to cancel deployment: %v", err)
-		http.Error(w, msg, http.StatusInternalServerError)
+	if err := app.pipeline.Cancel(id); err != nil {
+		app.serverError(w, err)
 		return
 	}
 
 }
 
-func (h *Handler) ListDeployments(w http.ResponseWriter, r *http.Request) {
-	deployments, err := h.store.ListDeployments()
+func (app *application) ListDeployments(w http.ResponseWriter, r *http.Request) {
+	deployments, err := app.store.ListDeployments()
 	if err != nil {
-		http.Error(w, "failed to fetch deployments", http.StatusInternalServerError)
+		app.serverError(w, err)
 		return
 	}
 
