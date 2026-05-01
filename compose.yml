@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    command: "./server"
     depends_on:
       - caddy
       - buildkit
@@ -13,7 +14,6 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      DATABASE_URL: "/data/deployments.db"
       BUILDKIT_HOST: "docker-container://buildkit"
       DOCKER_HOST: "unix:///var/run/docker.sock"
     image: "api:dev"

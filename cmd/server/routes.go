@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-func (app *application) routes() *http.ServeMux {
+func (app *application) routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -19,5 +19,5 @@ func (app *application) routes() *http.ServeMux {
 	mux.HandleFunc("PATCH /deployments/{id}", app.CancelDeployment)
 	mux.HandleFunc("GET /deployments/{id}/logs", app.StreamLogs)
 
-	return mux
+	return app.recoverPanic(app.logRequest(secureHeaders(mux)))
 }

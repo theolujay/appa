@@ -13,17 +13,13 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":8080", "HTTP network address")
+	dsn := flag.String("dsn", "/data/deployments.db", "SQLite data source name")
 	flag.Parse()
 
 	infoLog := log.New(os.Stdout, "INFO\t", log.Ldate|log.Ltime|log.LUTC)
 	errorLog := log.New(os.Stderr, "ERROR\t", log.Ldate|log.Ltime|log.LUTC|log.Lshortfile)
 
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		dsn = "deployments.db"
-	}
-
-	store, err := store.New(dsn)
+	store, err := store.New(*dsn)
 	if err != nil {
 		errorLog.Fatalf("failed to initialise store: %v", err)
 	}
