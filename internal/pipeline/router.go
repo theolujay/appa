@@ -41,18 +41,16 @@ type caddyUpstream struct {
 	Dial string `json:"dial,omitempty"`
 }
 
-func (p *Pipeline) AddRoute(deploymentID, address string) error {
-	routeID := fmt.Sprintf("deployment-%s", deploymentID)
+func (p *Pipeline) AddRoute(id int64, address string) error {
+	routeID := fmt.Sprintf("deployment-%d", id)
 
-	// Ensure idempotency by removing old route
-	_ = p.RemoveRoute(deploymentID)
+	_ = p.RemoveRoute(id)
 
-	// Construct route according to Caddy JSON handler spec
 	route := caddyRoute{
 		ID: routeID,
 		Match: []caddyMatch{
 			{
-				Host: []string{fmt.Sprintf("%s.localhost", deploymentID)},
+				Host: []string{fmt.Sprintf("%d.localhost", id)},
 			},
 		},
 		Handle: []caddyHandle{
@@ -78,7 +76,7 @@ func (p *Pipeline) AddRoute(deploymentID, address string) error {
 		return fmt.Errorf("failed to marshal route: %w", err)
 	}
 
-	fmt.Printf("[DEBUG] Prepending route for %s to Caddy\n", deploymentID)
+	fmt.Printf("[DEBUG] Prepending route for %d to Caddy\n", id)
 
 	// Prepend to srv0 routes array
 	url := "http://caddy:2019/config/apps/http/servers/srv0/routes/0"
@@ -97,8 +95,8 @@ func (p *Pipeline) AddRoute(deploymentID, address string) error {
 	return nil
 }
 
-func (p *Pipeline) RemoveRoute(deploymentID string) error {
-	routeID := fmt.Sprintf("deployment-%s", deploymentID)
+func (p *Pipeline) RemoveRoute(id int64) error {
+	routeID := fmt.Sprintf("deployment-%d", id)
 	url := fmt.Sprintf("http://caddy:2019/id/%s", routeID)
 
 	req, err := http.NewRequest(http.MethodDelete, url, nil)

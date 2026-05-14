@@ -1,0 +1,50 @@
+{{define "subject"}}Welcome to Appa!{{end}}
+
+{{define "plainBody"}}
+Hi,
+
+Thanks for signing up for a Appa account. We're excited to have you on board!
+
+For future reference, your user ID number is {{.ID}}.
+
+To activate your Appa account please visit https://example.com/users/activate and
+enter the following code:
+
+--------------------------
+{{.activationToken}}
+--------------------------
+
+Please note that this is a one-time use token and it will expire in 3 days.
+
+Thanks,
+
+The Appa Team
+{{end}}
+
+{{define "htmlBody"}}
+<!doctype html>
+<html>
+
+<head>
+    <meta name="viewport" content="width=device-width" />
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+</head>
+
+<body>
+    <p>Hi,</p>
+    <p>Thanks for signing up or a Appa account. We're excited to have you on board!</p>
+    <p>For future reference, your user ID number is {{.ID}}.</p>
+    <p>To activate your Appa account please visit
+    https://example.com/users/activate and enter the following code:</p>
+    <pre><code>
+    --------------------------
+    {{.activationToken}}
+    --------------------------
+    </code></pre>
+    <p>Please note that this is a one-time use token and it will expire in 3 days.</p>
+    <p>Thanks,</p>
+    <p>The Appa Team</p>
+</body>
+
+</html>
+{{end}}

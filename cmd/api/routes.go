@@ -1,23 +1,45 @@
 package main
 
 import (
-	"fmt"
+	"expvar"
 	"net/http"
+
+	"github.com/julienschmidt/httprouter"
+	"github.com/justinas/alice"
 )
 
 func (app *application) routes() http.Handler {
-	mux := http.NewServeMux()
+	router := httprouter.New()
+	router.NotFound = http.HandlerFunc(app.notFoundResponse)
+	router.MethodNotAllowed = http.HandlerFunc(app.methodNotAllowedResponse)
 
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "ok")
-	})
+	router.HandlerFunc(http.MethodGet, "/v1/healthcheck", app.healthcheckHandler)
 
-	mux.HandleFunc("GET /deployments", app.ListDeployments)
-	mux.HandleFunc("POST /deployments", app.CreateDeployment)
-	mux.HandleFunc("POST /deployments/upload", app.UploadProject)
-	mux.HandleFunc("PATCH /deployments/{id}", app.CancelDeployment)
-	mux.HandleFunc("GET /deployments/{id}/logs", app.StreamLogs)
+	router.HandlerFunc(http.MethodGet, "/v1/deployments", app.ListDeployments)
+	router.HandlerFunc(http.MethodPost, "/v1/deployments", app.CreateDeployment)
+	router.HandlerFunc(http.MethodPost, "/v1/deployments/upload", app.UploadProject)
+	router.HandlerFunc(http.MethodPatch, "/v1/deployments/{id}", app.CancelDeployment)
+	router.HandlerFunc(http.MethodGet, "/v1/deployments/{id}/logs", app.StreamLogs)
 
-	return app.recoverPanic(app.logRequest(secureHeaders(mux)))
+	router.Handler(http.MethodGet, "/debug/vars", expvar.Handler())
+
+	standard := alice.New(app.metrics, app.recoverPanic, app.enableCORS, app.logRequest, app.rateLimit)
+
+	return standard.Then(router)
+}
+
+func (app *application) healthcheckHandler(w http.ResponseWriter, r *http.Request) {
+
+	env := envelope{
+		"status": "available",
+		"system_info": map[string]string{
+			"environment": app.config.env,
+			"version":     version,
+		},
+	}
+
+	err := app.writeJSON(w, http.StatusOK, env, nil)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+	}
 }

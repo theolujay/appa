@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -31,9 +32,10 @@ var upgrader = websocket.Upgrader{
 // upgrades the conn to WS, replays historical logs for the given deployment
 // then streams live log lines until client disconnects or pipeline finishes
 func (app *application) StreamLogs(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id == "" {
-		http.Error(w, "missing deployment id", http.StatusBadRequest)
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id < 1 {
+		http.Error(w, "invalid deployment id", http.StatusBadRequest)
 		return
 	}
 
@@ -45,9 +47,9 @@ func (app *application) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Replay all historical logs before switching to live streaming.
-	logs, err := app.store.GetLogs(id)
+	logs, err := app.models.Deployments.GetLogs(id)
 	if err != nil {
-		log.Printf("failed to fetch historical logs for %s: %v", id, err)
+		log.Printf("failed to fetch historical logs for %d: %v", id, err)
 	}
 
 	var lastHistoryID int64

@@ -5,134 +5,129 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/theolujay/appa/internal/data"
 	"github.com/theolujay/appa/internal/hub"
-	"github.com/theolujay/appa/internal/store"
 )
 
 type Pipeline struct {
-	store       *store.Store
+	deployment  *data.DeploymentModel
 	hub         *hub.Hub
 	mu          sync.Mutex
-	activeTasks map[string]context.CancelFunc
+	activeTasks map[int64]context.CancelFunc
 }
 
-func New(s *store.Store, h *hub.Hub) *Pipeline {
+func New(dm *data.DeploymentModel, h *hub.Hub) *Pipeline {
 	return &Pipeline{
-		store:       s,
+		deployment:  dm,
 		hub:         h,
-		activeTasks: make(map[string]context.CancelFunc),
+		activeTasks: make(map[int64]context.CancelFunc),
 	}
 }
 
-func (p *Pipeline) Run(deploymentID, source string) {
-	// Create a cancellable context for this deployment run.
+func (p *Pipeline) Run(d *data.Deployment) {
 	status := ""
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// Register the task so it can be cancelled via the API
 	p.mu.Lock()
-	p.activeTasks[deploymentID] = cancel
+	p.activeTasks[d.ID] = cancel
 	p.mu.Unlock()
-	// Ensure task can be unregistered when the pipeline finishes (success or failure)
 	defer func() {
 		p.mu.Lock()
-		delete(p.activeTasks, deploymentID)
+		delete(p.activeTasks, d.ID)
 		p.mu.Unlock()
 	}()
 
-	imageTag, err := p.Build(ctx, deploymentID, source)
+	imageTag, err := p.Build(ctx, d.ID, d.Source)
 	if err != nil {
-		status = store.FAILED
+		status = data.FAILED
 		if ctx.Err() == context.Canceled {
-			status = store.CANCELED
+			status = data.CANCELED
 		}
-		p.store.UpdateDeployment(deploymentID, store.DeploymentUpdate{Status: &status})
+		p.deployment.UpdateDeployment(d.ID, data.DeploymentUpdate{Status: &status})
 		msg := fmt.Sprintf("build failed: %v", err)
-		id, _ := p.store.AppendLog(deploymentID, "build", msg)
-		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
-		p.hub.PublishStatus(deploymentID, status, "")
+		logID, _ := p.deployment.AppendLog(d.ID, "build", msg)
+		p.hub.PublishLog(d.ID, hub.LogMessage{ID: logID, Line: msg})
+		p.hub.PublishStatus(d.ID, status, "")
 		return
 	}
 
-	address, err := p.StartContainer(ctx, deploymentID, imageTag)
+	address, err := p.StartContainer(ctx, d.ID, imageTag)
 	if err != nil {
-		status = store.FAILED
+		status = data.FAILED
 		if ctx.Err() == context.Canceled {
-			status = store.CANCELED
+			status = data.CANCELED
 		}
-		p.store.UpdateDeployment(deploymentID, store.DeploymentUpdate{Status: &status})
+		p.deployment.UpdateDeployment(d.ID, data.DeploymentUpdate{Status: &status})
 		msg := fmt.Sprintf("deployment failed: %v", err)
-		id, _ := p.store.AppendLog(deploymentID, "deploy", msg)
-		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
-		p.hub.PublishStatus(deploymentID, status, "")
+		logID, _ := p.deployment.AppendLog(d.ID, "deploy", msg)
+		p.hub.PublishLog(d.ID, hub.LogMessage{ID: logID, Line: msg})
+		p.hub.PublishStatus(d.ID, status, "")
 		return
 	}
 
-	if err := p.AddRoute(deploymentID, address); err != nil {
-		status = store.FAILED
-		p.store.UpdateDeployment(deploymentID, store.DeploymentUpdate{Status: &status})
+	if err := p.AddRoute(d.ID, address); err != nil {
+		status = data.FAILED
+		p.deployment.UpdateDeployment(d.ID, data.DeploymentUpdate{Status: &status})
 		msg := fmt.Sprintf("routing failed: %v", err)
-		id, _ := p.store.AppendLog(deploymentID, "deploy", msg)
-		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
-		p.hub.PublishStatus(deploymentID, status, "")
+		logID, _ := p.deployment.AppendLog(d.ID, "deploy", msg)
+		p.hub.PublishLog(d.ID, hub.LogMessage{ID: logID, Line: msg})
+		p.hub.PublishStatus(d.ID, status, "")
 		return
 	}
 
-	// Construct the public URL from the deployment ID using subdomain format.
-	url := fmt.Sprintf("http://%s.localhost", deploymentID)
+	url := fmt.Sprintf("http://%d.localhost", d.ID)
 
-	status = store.RUNNING
-	p.store.UpdateDeployment(deploymentID, store.DeploymentUpdate{
+	status = data.RUNNING
+	p.deployment.UpdateDeployment(d.ID, data.DeploymentUpdate{
 		Status:  &status,
 		URL:     &url,
 		Address: &address,
 	})
 
 	msg := fmt.Sprintf("deployment live at %s", url)
-	id, _ := p.store.AppendLog(deploymentID, "deploy", msg)
-	p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
-	p.hub.PublishStatus(deploymentID, status, url)
+	logID, _ := p.deployment.AppendLog(d.ID, "deploy", msg)
+	p.hub.PublishLog(d.ID, hub.LogMessage{ID: logID, Line: msg})
+	p.hub.PublishStatus(d.ID, status, url)
 }
 
 func (p *Pipeline) SyncRoutes() error {
-	deployments, err := p.store.ListDeployments()
+	deployments, err := p.deployment.ListDeployments()
 	if err != nil {
 		return fmt.Errorf("failed to list deployments for sync: %w", err)
 	}
 
 	fmt.Println("Syncing active deployment routes with Caddy...")
 	for _, d := range deployments {
-		if d.Status == store.RUNNING && d.Address != nil {
-			fmt.Printf("Restoring route for %s -> %s\n", d.ID, *d.Address)
+		if d.Status == data.RUNNING && d.Address != nil {
+			fmt.Printf("Restoring route for %d -> %s\n", d.ID, *d.Address)
 			if err := p.AddRoute(d.ID, *d.Address); err != nil {
-				fmt.Printf("failed to restore route for %s: %v\n", d.ID, err)
+				fmt.Printf("failed to restore route for %d: %v\n", d.ID, err)
 			}
 		}
 	}
 	return nil
 }
 
-func (p *Pipeline) Cancel(deploymentID string) error {
+func (p *Pipeline) Cancel(id int64) error {
 	p.mu.Lock()
-	cancel, ok := p.activeTasks[deploymentID]
+	cancel, ok := p.activeTasks[id]
 	p.mu.Unlock()
 
 	if !ok {
-		// If it's not in activeTasks, it might be already finished or running.
-		// If it's running, stop the container.
-		return p.StopContainer(deploymentID)
+		return p.StopContainer(id)
 	}
-	// Trigger cancellation. This will cause p.Build or p.StartContainer to return an error.
 	cancel()
 
 	msg := "cancellation requested"
-	id, _ := p.store.AppendLog(deploymentID, "system", msg)
-	p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
+	logID, _ := p.deployment.AppendLog(id, "system", msg)
+	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
 
 	return nil
 }
 
-func truncStr(s string) string {
+func truncStr(id int64) string {
+	s := fmt.Sprintf("%d", id)
 	if len(s) < 8 {
 		return s
 	}

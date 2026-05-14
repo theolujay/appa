@@ -24,32 +24,32 @@ type Event struct {
 }
 
 type Client struct {
-	DeploymentID string
+	DeploymentID int64
 	Send         chan Event
 }
 
 type Hub struct {
-	subscribers map[string]map[*Client]struct{}
+	subscribers map[int64]map[*Client]struct{}
 	register    chan *Client
 	unregister  chan *Client
 	broadcast   chan InternalMessage
 }
 
 type InternalMessage struct {
-	DeploymentID string
+	DeploymentID int64
 	Event        Event
 }
 
 func New() *Hub {
 	return &Hub{
-		subscribers: make(map[string]map[*Client]struct{}),
+		subscribers: make(map[int64]map[*Client]struct{}),
 		register:    make(chan *Client),
 		unregister:  make(chan *Client),
 		broadcast:   make(chan InternalMessage),
 	}
 }
 
-func NewClient(deploymentID string, send chan Event) *Client {
+func NewClient(deploymentID int64, send chan Event) *Client {
 	return &Client{DeploymentID: deploymentID, Send: send}
 }
 
@@ -87,7 +87,7 @@ func (h *Hub) Run() {
 	}
 }
 
-func (h *Hub) PublishLog(deploymentID string, log LogMessage) {
+func (h *Hub) PublishLog(deploymentID int64, log LogMessage) {
 	h.broadcast <- InternalMessage{
 		DeploymentID: deploymentID,
 		Event: Event{
@@ -97,7 +97,7 @@ func (h *Hub) PublishLog(deploymentID string, log LogMessage) {
 	}
 }
 
-func (h *Hub) PublishStatus(deploymentID string, status string, url string) {
+func (h *Hub) PublishStatus(deploymentID int64, status string, url string) {
 	h.broadcast <- InternalMessage{
 		DeploymentID: deploymentID,
 		Event: Event{

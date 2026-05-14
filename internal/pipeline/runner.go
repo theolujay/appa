@@ -11,19 +11,19 @@ import (
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
+	"github.com/theolujay/appa/internal/data"
 	"github.com/theolujay/appa/internal/hub"
-	"github.com/theolujay/appa/internal/store"
 )
 
 // StartContainer starts a container from the given image tag and streams its logs
 // to the hub and he database. It returns the host:port address of the
 // running contianer so the router can configure Caddy to point at it.
-func (p *Pipeline) StartContainer(ctx context.Context, deploymentID, imageTag string) (string, error) {
-	status := store.DEPLOYING
-	if err := p.store.UpdateDeployment(deploymentID, store.DeploymentUpdate{Status: &status}); err != nil {
+func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string) (string, error) {
+	status := data.DEPLOYING
+	if err := p.deployment.UpdateDeployment(id, data.DeploymentUpdate{Status: &status}); err != nil {
 		return "", fmt.Errorf("failed to update status: %w", err)
 	}
-	p.hub.PublishStatus(deploymentID, status, "")
+	p.hub.PublishStatus(id, status, "")
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -67,7 +67,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, deploymentID, imageTag st
 	}
 
 	// prepare env vars
-	deployment, _ := p.store.GetDeployment(deploymentID)
+	deployment, _ := p.deployment.GetDeployment(id)
 	var env []string
 	if deployment.EnvVars != nil && *deployment.EnvVars != "" {
 		lines := strings.Split(*deployment.EnvVars, "\n")
@@ -79,7 +79,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, deploymentID, imageTag st
 		}
 	}
 
-	containerName := fmt.Sprintf("appa-%s", deploymentID)
+	containerName := fmt.Sprintf("appa-%d", id)
 
 	hostConfig := &container.HostConfig{
 		NetworkMode: "appa_net",
@@ -107,8 +107,8 @@ func (p *Pipeline) StartContainer(ctx context.Context, deploymentID, imageTag st
 	address := net.JoinHostPort(containerName, strings.Split(containerPortStr, "/")[0])
 
 	msg := fmt.Sprintf("waiting for container %s to respond...", address)
-	id, _ := p.store.AppendLog(deploymentID, "deploy", msg)
-	p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
+	logID, _ := p.deployment.AppendLog(id, "deploy", msg)
+	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
 
 	healthy := false
 	for range 60 { // wait up to 30 seconds (60 * 500ms)
@@ -123,13 +123,13 @@ func (p *Pipeline) StartContainer(ctx context.Context, deploymentID, imageTag st
 
 	if !healthy {
 		msg := "container failed to start"
-		id, _ := p.store.AppendLog(deploymentID, "deploy", msg)
-		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
+		logID, _ := p.deployment.AppendLog(id, "deploy", msg)
+		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
 		return "", fmt.Errorf("container did not respond on port %d", hostPort)
 	} else {
 		msg := "container is healthy and accepting connections"
-		id, _ := p.store.AppendLog(deploymentID, "deploy", msg)
-		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
+		logID, _ := p.deployment.AppendLog(id, "deploy", msg)
+		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
 	}
 
 	go func() {
@@ -137,16 +137,16 @@ func (p *Pipeline) StartContainer(ctx context.Context, deploymentID, imageTag st
 		logReader, err := dockerClient.ContainerLogs(logCtx, createResp.ID, client.ContainerLogsOptions{
 			ShowStdout: true,
 			ShowStderr: true,
-			Follow:     true, // keep streaming
+			Follow:     true,
 			Timestamps: false,
 		})
 		if err != nil {
-			p.store.AppendLog(deploymentID, "deploy", fmt.Sprintf("failed to attach container logs: %v", err))
+			p.deployment.AppendLog(id, "deploy", fmt.Sprintf("failed to attach container logs: %v", err))
 			return
 		}
 		defer logReader.Close()
 
-		// Create an in-memory pip: pw is the write end, pr is the read end.
+		// Create an in-memory pipe: pw is the write end, pr is the read end.
 		// Anything written to pw can be read from pr.
 		pr, pw := io.Pipe()
 		// stdcopy.StdCopy runs in its own goroutine because it blocks until
@@ -158,16 +158,16 @@ func (p *Pipeline) StartContainer(ctx context.Context, deploymentID, imageTag st
 			pw.Close()
 		}()
 
-		p.streamLogs(deploymentID, "deploy", pr)
+		p.streamLogs(id, "deploy", pr)
 	}()
 
 	return address, nil
 }
 
-func (p *Pipeline) StopContainer(deploymentID string) error {
+func (p *Pipeline) StopContainer(id int64) error {
 	URL := ""
 	imageTag := ""
-	status := store.STOPPED
+	status := data.STOPPED
 
 	dockerClient, err := client.New(client.FromEnv)
 	if err != nil {
@@ -177,19 +177,19 @@ func (p *Pipeline) StopContainer(deploymentID string) error {
 
 	// Since AutoRemove: true was set in StartContainer,
 	// stopping the container will automatically delete it.
-	containerName := fmt.Sprintf("appa-%s", deploymentID)
+	containerName := fmt.Sprintf("appa-%d", id)
 	if _, err := dockerClient.ContainerStop(context.Background(), containerName, client.ContainerStopOptions{}); err != nil {
 		if !strings.Contains(err.Error(), "No such container") {
 			return fmt.Errorf("failed to stop container %s: %w", containerName, err)
 		}
 	}
-	if err := p.RemoveRoute(deploymentID); err != nil {
-		fmt.Printf("failed to remove caddy route for %s: %v\n", deploymentID, err)
+	if err := p.RemoveRoute(id); err != nil {
+		fmt.Printf("failed to remove caddy route for %d: %v\n", id, err)
 	}
 
-	p.store.UpdateDeployment(
-		deploymentID,
-		store.DeploymentUpdate{
+	p.deployment.UpdateDeployment(
+		id,
+		data.DeploymentUpdate{
 			URL:      &URL,
 			Status:   &status,
 			ImageTag: &imageTag,
@@ -197,9 +197,9 @@ func (p *Pipeline) StopContainer(deploymentID string) error {
 	)
 
 	msg := "deployment stopped by user"
-	id, _ := p.store.AppendLog(deploymentID, "system", msg)
-	p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
-	p.hub.PublishStatus(deploymentID, status, "")
+	logID, _ := p.deployment.AppendLog(id, "system", msg)
+	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
+	p.hub.PublishStatus(id, status, "")
 
 	return nil
 }

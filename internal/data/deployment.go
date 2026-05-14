@@ -1,11 +1,11 @@
-package store
+package data
 
 import (
 	"database/sql"
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/theolujay/appa/internal/validator"
 )
 
 const (
@@ -18,12 +18,12 @@ const (
 	FAILED    string = "failed"
 )
 
-type Store struct {
-	db *sql.DB
+type DeploymentModel struct {
+	DB *sql.DB
 }
 
 type Deployment struct {
-	ID        string  `json:"id"`
+	ID        int64   `json:"id"`
 	Source    string  `json:"source"`
 	Status    string  `json:"status"`
 	ImageTag  *string `json:"image_tag"`
@@ -31,6 +31,7 @@ type Deployment struct {
 	EnvVars   *string `json:"env_vars"`
 	URL       *string `json:"url"`
 	CreatedAt string  `json:"created_at"`
+	Version   int
 }
 
 type DeploymentUpdate struct {
@@ -41,85 +42,95 @@ type DeploymentUpdate struct {
 	URL      *string
 }
 
-func New(dsn string) (*Store, error) {
-	db, err := sql.Open("sqlite", dsn)
+func ValidateDeployment(v *validator.Validator, d *Deployment) {
+	v.Check(d.Source != "", "source", "must be provided")
+	v.Check(len(d.Source) <= 500, "source", "must not be more than 500 bytes long")
+
+	v.Check(d.Status != "", "status", "must be provided")
+	v.Check(validator.PermittedValue(d.Status, PENDING, BUILDING, DEPLOYING, RUNNING, CANCELED, STOPPED, FAILED), "status", "must be a valid status")
+}
+
+func New(dsn string) (*DeploymentModel, error) {
+	DB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	if err := db.Ping(); err != nil {
+	if err := DB.Ping(); err != nil {
 		return nil, err
 	}
 	// enforce foreign keys, as SQLite doesn't do that by default
-	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+	if _, err := DB.Exec("PRAGMA foreign_keys = ON"); err != nil {
 		return nil, err
 	}
 	// WAL mode allows conccurent readers alongside a writer.
 	// Without this, any read during a write returns SQLITE_BUSY
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+	if _, err := DB.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		return nil, err
 	}
 	// Wait up to 5 seconds for a lock to clear before returning SQLITE_BUSY
-	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+	if _, err := DB.Exec("PRAGMA busy_timeout=5000"); err != nil {
 		return nil, err
 	}
-	s := &Store{db: db}
+	s := &DeploymentModel{DB: DB}
 	if err := s.migrate(); err != nil {
 		return nil, err
 	}
 
 	// Allow multiple connections so WAL mode can handle concurrent readers/writers.
 	// This prevents the WebSocket handshake from blocking during heavy build logging.
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(time.Hour)
+	DB.SetMaxOpenConns(10)
+	DB.SetMaxIdleConns(5)
+	DB.SetConnMaxLifetime(time.Hour)
 	return s, nil
 }
 
-func (s *Store) migrate() error {
-	_, err := s.db.Exec(
+func (s *DeploymentModel) migrate() error {
+	_, err := s.DB.Exec(
 		`CREATE TABLE IF NOT EXISTS deployments (
-			id			TEXT PRIMARY KEY,
+			id			BIGSERIAL PRIMARY KEY,
 			source		TEXT NOT NULL,
 			status		TEXT NOT NULL DEFAULT 'pending',
 			image_tag	TEXT,
 			address		TEXT,
 			env_vars    TEXT,
 			url			TEXT,
-			created_at	DATETIME NOT NULL DEFAULT (datetime('now'))
+			version		INTEGER NOT NULL DEFAULT 1,
+			created_at	TIMESTAMP NOT NULL DEFAULT NOW()
 		);
 
 		CREATE TABLE IF NOT EXISTS logs (
-			id				INTEGER PRIMARY KEY AUTOINCREMENT,
-			deployment_id	TEXT NOT NULL REFERENCES deployments(id),
+			id				BIGSERIAL PRIMARY KEY,
+			deployment_id	BIGINT NOT NULL REFERENCES deployments(id),
 			phase			TEXT NOT NULL,
 			line			TEXT NOT NULL,
-			ts				DATETIME NOT NULL DEFAULT (datetime('now'))
+			ts				TIMESTAMP NOT NULL DEFAULT NOW()
 		);
 	`)
 	return err
 }
 
-func (s *Store) CreateDeployment(id, source string) error {
-	_, err := s.db.Exec(
-		`INSERT INTO deployments (id, source, status, created_at)
-		VALUES (?, ?, 'pending', datetime('now'))`,
-		id, source,
-	)
-	return err
-}
+// func (s *DeploymentModel) CreateDeployment(id, source string) error {
+// 	_, err := s.DB.Exec(
+// 		`INSERT INTO deployments (id, source, status, created_at)
+// 		VALUES (?, ?, 'pending', datetime('now'))`,
+// 		id, source,
+// 	)
+// 	return err
+// }
 
 // Add New method specifically for deployments with env vars
-func (s *Store) CreateDeploymentWithEnv(id, source, envVars string) error {
-	_, err := s.db.Exec(
-		`INSERT INTO deployments (id, source, status, env_vars, created_at)
-		VALUES (?, ?, 'pending', ?, datetime('now'))`,
-		id, source, envVars,
-	)
-	return err
+func (dm *DeploymentModel) CreateDeployment(d *Deployment) error {
+	query := `
+		INSERT INTO deployments (source, env_vars)
+		VALUES($1, $2)
+		RETURNING id, status, created_at, version
+	`
+
+	return dm.DB.QueryRow(query, d.Source, d.EnvVars).Scan(&d.ID, &d.Status, &d.CreatedAt, &d.Version)
 }
 
-func (s *Store) GetDeployment(id string) (Deployment, error) {
-	rows, err := s.db.Query(
+func (s *DeploymentModel) GetDeployment(id int64) (Deployment, error) {
+	rows, err := s.DB.Query(
 		`SELECT id, source, status, image_tag, address, env_vars, url, created_at
 		FROM deployments WHERE id = ?`, id,
 	)
@@ -144,8 +155,8 @@ func (s *Store) GetDeployment(id string) (Deployment, error) {
 	return deployments[0], nil
 }
 
-func (s *Store) ListDeployments() ([]Deployment, error) {
-	rows, err := s.db.Query(`
+func (s *DeploymentModel) ListDeployments() ([]Deployment, error) {
+	rows, err := s.DB.Query(`
         SELECT id, source, status, image_tag, address, env_vars, url, created_at
         FROM deployments
         ORDER BY created_at DESC
@@ -178,8 +189,8 @@ type LogEntry struct {
 	Line string `json:"line"`
 }
 
-func (s *Store) GetLogs(deploymentID string) ([]LogEntry, error) {
-	rows, err := s.db.Query(
+func (s *DeploymentModel) GetLogs(deploymentID int64) ([]LogEntry, error) {
+	rows, err := s.DB.Query(
 		`SELECT id, line FROM logs WHERE deployment_id = ? ORDER BY id ASC`,
 		deploymentID,
 	)
@@ -199,8 +210,8 @@ func (s *Store) GetLogs(deploymentID string) ([]LogEntry, error) {
 	return logs, rows.Err()
 }
 
-func (s *Store) AppendLog(deploymentID, phase, line string) (int64, error) {
-	res, err := s.db.Exec(
+func (s *DeploymentModel) AppendLog(deploymentID int64, phase, line string) (int64, error) {
+	res, err := s.DB.Exec(
 		`INSERT INTO logs (deployment_id, phase, line) VALUES (?, ?, ?)`,
 		deploymentID, phase, line,
 	)
@@ -210,7 +221,7 @@ func (s *Store) AppendLog(deploymentID, phase, line string) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (s *Store) UpdateDeployment(id string, u DeploymentUpdate) error {
+func (s *DeploymentModel) UpdateDeployment(id int64, u DeploymentUpdate) error {
 	query := "UPDATE deployments SET "
 	var args []interface{}
 	var fields []string
@@ -244,6 +255,6 @@ func (s *Store) UpdateDeployment(id string, u DeploymentUpdate) error {
 	query += " WHERE id = ?"
 	args = append(args, id)
 
-	_, err := s.db.Exec(query, args...)
+	_, err := s.DB.Exec(query, args...)
 	return err
 }

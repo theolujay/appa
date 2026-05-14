@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/theolujay/appa/internal/data"
 	"github.com/theolujay/appa/internal/hub"
-	"github.com/theolujay/appa/internal/store"
 )
 
 // Build invokes Railpack to build the source at the given Git URL (after
@@ -21,14 +21,13 @@ import (
 // after the build finishes. On success it returns the image tag produced.
 // On failure it returns an error so the pipeline can mark the deployment
 // as failed.
-func (p *Pipeline) Build(ctx context.Context, deploymentID, source string) (string, error) {
-	// Mark as 'building' immediately
+func (p *Pipeline) Build(ctx context.Context, id int64, source string) (string, error) {
 	status := "building"
-	if err := p.store.UpdateDeployment(deploymentID, store.DeploymentUpdate{Status: &status}); err != nil {
+	if err := p.deployment.UpdateDeployment(id, data.DeploymentUpdate{Status: &status}); err != nil {
 		return "", fmt.Errorf("failed to update status: %w", err)
 	}
-	p.hub.PublishStatus(deploymentID, status, "")
-	imageTag := fmt.Sprintf("appa-%s", truncStr(deploymentID))
+	p.hub.PublishStatus(id, status, "")
+	imageTag := fmt.Sprintf("appa-%s", truncStr(id))
 
 	// Check if source is a local directory (for uploads) or a git URL
 	isLocal := false
@@ -39,8 +38,8 @@ func (p *Pipeline) Build(ctx context.Context, deploymentID, source string) (stri
 	var buildDir string
 	if isLocal {
 		buildDir = source
-		id, _ := p.store.AppendLog(deploymentID, "build", "using uploaded project files")
-		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: "using uploaded project files"})
+		logID, _ := p.deployment.AppendLog(id, "build", "using uploaded project files")
+		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: "using uploaded project files"})
 	} else {
 		// Create a temporary directory to clone the source repository into,
 		// then clean it up afterwards
@@ -53,33 +52,29 @@ func (p *Pipeline) Build(ctx context.Context, deploymentID, source string) (stri
 
 		// Clone the repository into the temp directory, and stream it in logs
 		msg := fmt.Sprintf("cloning %s", source)
-		id, _ := p.store.AppendLog(deploymentID, "build", msg)
-		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: msg})
+		logID, _ := p.deployment.AppendLog(id, "build", msg)
+		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
 
 		cloneCmd := exec.CommandContext(ctx, "git", "clone", "--quiet", "--depth=1", source, buildDir)
 		cloneOut, err := cloneCmd.CombinedOutput()
 		if err != nil {
 			return "", fmt.Errorf("git clone failed: %s", string(cloneOut))
 		}
-		id, _ = p.store.AppendLog(deploymentID, "build", "clone complete")
-		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: "clone complete"})
+		logID, _ = p.deployment.AppendLog(id, "build", "clone complete")
+		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: "clone complete"})
 	}
 
-	// Create a context that will automatically cancel after 10 minutes
 	ctxWT, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 
-	deployment, _ := p.store.GetDeployment(deploymentID)
+	deployment, _ := p.deployment.GetDeployment(id)
 
 	cmd := exec.CommandContext(ctxWT, "railpack", "build", "--name", imageTag, buildDir)
 
-	// Ensure Railpack uses our persistent, baked-in cache instead of /tmp
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "RAILPACK_CACHE_DIR=/usr/local/share/railpack")
 
-	// Inject custom environment variables
 	if deployment.EnvVars != nil && *deployment.EnvVars != "" {
-
 		envLines := strings.Split(*deployment.EnvVars, "\n")
 		for _, line := range envLines {
 			line = strings.TrimSpace(line)
@@ -110,10 +105,8 @@ func (p *Pipeline) Build(ctx context.Context, deploymentID, source string) (stri
 	// to finish before calling cmd.Wait().
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() { defer wg.Done(); p.streamLogs(deploymentID, "build", stdout) }()
-	go func() { defer wg.Done(); p.streamLogs(deploymentID, "build", stderr) }()
-	// Block at this point until both goroutines have finished draining their pipes, so
-	// logs aren't truncated when Build completes
+	go func() { defer wg.Done(); p.streamLogs(id, "build", stdout) }()
+	go func() { defer wg.Done(); p.streamLogs(id, "build", stderr) }()
 	wg.Wait()
 
 	// Now wait for the process to exit...
@@ -126,19 +119,18 @@ func (p *Pipeline) Build(ctx context.Context, deploymentID, source string) (stri
 	return imageTag, nil
 }
 
-func (p *Pipeline) streamLogs(deploymentID, phase string, r io.Reader) {
+func (p *Pipeline) streamLogs(id int64, phase string, r io.Reader) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
 
 		// First persist. If the hub publish fails for any reason, the log
 		// lines still live in the database for scroll-back
-		id, err := p.store.AppendLog(deploymentID, phase, line)
+		logID, err := p.deployment.AppendLog(id, phase, line)
 		if err != nil {
-			// Issues with logging shouldn't abort the build, so don't return here
 			_ = err
 		}
 
-		p.hub.PublishLog(deploymentID, hub.LogMessage{ID: id, Line: line})
+		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: line})
 	}
 }

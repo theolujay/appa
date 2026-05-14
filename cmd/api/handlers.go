@@ -3,94 +3,111 @@ package main
 import (
 	"archive/zip"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/google/uuid"
-	"github.com/theolujay/appa/internal/hub"
-	"github.com/theolujay/appa/internal/pipeline"
-	"github.com/theolujay/appa/internal/store"
+	"github.com/theolujay/appa/internal/data"
+	"github.com/theolujay/appa/internal/validator"
 )
-
-type application struct {
-	errorLog *log.Logger
-	infoLog  *log.Logger
-	store    *store.Store
-	pipeline *pipeline.Pipeline
-	hub      *hub.Hub
-}
 
 func (app *application) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Source  string `json:"source"`
 		EnvVars string `json:"env_vars"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		app.clientError(w, "", http.StatusBadRequest)
-		return
-	}
-	if input.Source == "" {
-		app.clientError(w, "source is required", http.StatusBadRequest)
-		return
-	}
-	id := uuid.New().String()
-	// Persist the deployment record immediately
-	if err := app.store.CreateDeploymentWithEnv(id, input.Source, input.EnvVars); err != nil {
-		app.serverError(w, err)
+	err := app.readJSON(w, r, &input)
+	if err != nil {
+		app.badRequestResponse(w, r, err)
 		return
 	}
 
-	go app.pipeline.Run(id, input.Source)
+	deployment := &data.Deployment{
+		Source:  input.Source,
+		EnvVars: &input.EnvVars,
+	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{
-		"id":     id,
-		"status": "pending",
+	v := validator.New()
+
+	if data.ValidateDeployment(v, deployment); !v.Valid() {
+		app.failedValidationResponse(w, r, v.Errors)
+		return
+	}
+
+	if err := app.models.Deployments.CreateDeployment(deployment); err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
+
+	app.background(func() {
+		app.pipeline.Run(deployment)
 	})
+
+	headers := make(http.Header)
+	headers.Set("Location", fmt.Sprintf("/deployments/%d/logs", deployment.ID))
+
+	err = app.writeJSON(w, http.StatusCreated, envelope{"deployment": deployment}, headers)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
 }
 
 func (app *application) UploadProject(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(100 << 20); err != nil { // 100MB max
-		app.clientError(w, "file too large", http.StatusBadRequest)
+		app.badRequestResponse(w, r, err)
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		app.clientError(w, "missing file", http.StatusBadRequest)
+		switch {
+		case errors.Is(err, http.ErrMissingFile):
+			app.badRequestResponse(w, r, err)
+		default:
+			app.serverErrorResponse(w, r, err)
+		}
 		return
 	}
 	defer file.Close()
 
 	envVars := r.FormValue("env_vars")
 
-	id := uuid.New().String()
-	uploadDir := filepath.Join("/tmp", "appa-upload", id)
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		app.serverError(w, err)
+	dir := uuid.New().String()
+	uploadDir := filepath.Join("/tmp", "appa-upload", dir)
+	if err = os.MkdirAll(uploadDir, 0755); err != nil {
+		app.serverErrorResponse(w, r, err)
 		return
 	}
-	if err := unzip(file, header.Size, uploadDir); err != nil {
-		app.serverError(w, err)
-		return
-	}
-	if err := app.store.CreateDeploymentWithEnv(id, "uploaded-project", envVars); err != nil {
-		app.serverError(w, err)
+	if err = unzip(file, header.Size, uploadDir); err != nil {
+		app.serverErrorResponse(w, r, err)
 		return
 	}
 
-	go app.pipeline.Run(id, uploadDir)
+	deployment := &data.Deployment{
+		Source:  "uploaded-project",
+		EnvVars: &envVars,
+	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{
-		"id":     id,
-		"status": "pending",
+	if err = app.models.Deployments.CreateDeployment(deployment); err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
+
+	app.background(func() {
+		deployment.Source = uploadDir
+		app.pipeline.Run(deployment)
 	})
+
+	err = app.writeJSON(w, http.StatusAccepted, envelope{"deployment": deployment}, nil)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
 }
 
 func unzip(r io.ReaderAt, size int64, dest string) error {
@@ -134,23 +151,24 @@ func unzip(r io.ReaderAt, size int64, dest string) error {
 }
 
 func (app *application) CancelDeployment(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id == "" {
-		app.clientError(w, "missing deployment id", http.StatusBadRequest)
+	id, err := app.readIDParam(r)
+
+	if err != nil || id < 1 {
+		app.notFoundResponse(w, r)
 		return
 	}
 
 	if err := app.pipeline.Cancel(id); err != nil {
-		app.serverError(w, err)
+		app.serverErrorResponse(w, r, err)
 		return
 	}
 
 }
 
 func (app *application) ListDeployments(w http.ResponseWriter, r *http.Request) {
-	deployments, err := app.store.ListDeployments()
+	deployments, err := app.models.Deployments.ListDeployments()
 	if err != nil {
-		app.serverError(w, err)
+		app.serverErrorResponse(w, r, err)
 		return
 	}
 
