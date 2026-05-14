@@ -1,8 +1,22 @@
 services:
+
+  db:
+    env_file:
+      - .env
+    image: postgres:18.3-bookworm
+    networks:
+      - "appa_net"
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    volumes:
+      - appa_db:/var/lib/postgresql/data
+      - ./docker/postgresql/init:/docker-entrypoint-initdb.d:ro
   api:
     build:
       context: .
       dockerfile: Dockerfile
+    command: "./server"
     depends_on:
       - caddy
       - buildkit
@@ -13,7 +27,6 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      DATABASE_URL: "/data/deployments.db"
       BUILDKIT_HOST: "docker-container://buildkit"
       DOCKER_HOST: "unix:///var/run/docker.sock"
     image: "api:dev"
