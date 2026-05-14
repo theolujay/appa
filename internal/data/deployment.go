@@ -3,7 +3,6 @@ package data
 import (
 	"database/sql"
 	"strings"
-	"time"
 
 	"github.com/theolujay/appa/internal/validator"
 )
@@ -50,75 +49,6 @@ func ValidateDeployment(v *validator.Validator, d *Deployment) {
 	v.Check(validator.PermittedValue(d.Status, PENDING, BUILDING, DEPLOYING, RUNNING, CANCELED, STOPPED, FAILED), "status", "must be a valid status")
 }
 
-func New(dsn string) (*DeploymentModel, error) {
-	DB, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return nil, err
-	}
-	if err := DB.Ping(); err != nil {
-		return nil, err
-	}
-	// enforce foreign keys, as SQLite doesn't do that by default
-	if _, err := DB.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		return nil, err
-	}
-	// WAL mode allows conccurent readers alongside a writer.
-	// Without this, any read during a write returns SQLITE_BUSY
-	if _, err := DB.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		return nil, err
-	}
-	// Wait up to 5 seconds for a lock to clear before returning SQLITE_BUSY
-	if _, err := DB.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		return nil, err
-	}
-	s := &DeploymentModel{DB: DB}
-	if err := s.migrate(); err != nil {
-		return nil, err
-	}
-
-	// Allow multiple connections so WAL mode can handle concurrent readers/writers.
-	// This prevents the WebSocket handshake from blocking during heavy build logging.
-	DB.SetMaxOpenConns(10)
-	DB.SetMaxIdleConns(5)
-	DB.SetConnMaxLifetime(time.Hour)
-	return s, nil
-}
-
-func (s *DeploymentModel) migrate() error {
-	_, err := s.DB.Exec(
-		`CREATE TABLE IF NOT EXISTS deployments (
-			id			BIGSERIAL PRIMARY KEY,
-			source		TEXT NOT NULL,
-			status		TEXT NOT NULL DEFAULT 'pending',
-			image_tag	TEXT,
-			address		TEXT,
-			env_vars    TEXT,
-			url			TEXT,
-			version		INTEGER NOT NULL DEFAULT 1,
-			created_at	TIMESTAMP NOT NULL DEFAULT NOW()
-		);
-
-		CREATE TABLE IF NOT EXISTS logs (
-			id				BIGSERIAL PRIMARY KEY,
-			deployment_id	BIGINT NOT NULL REFERENCES deployments(id),
-			phase			TEXT NOT NULL,
-			line			TEXT NOT NULL,
-			ts				TIMESTAMP NOT NULL DEFAULT NOW()
-		);
-	`)
-	return err
-}
-
-// func (s *DeploymentModel) CreateDeployment(id, source string) error {
-// 	_, err := s.DB.Exec(
-// 		`INSERT INTO deployments (id, source, status, created_at)
-// 		VALUES (?, ?, 'pending', datetime('now'))`,
-// 		id, source,
-// 	)
-// 	return err
-// }
-
-// Add New method specifically for deployments with env vars
 func (dm *DeploymentModel) CreateDeployment(d *Deployment) error {
 	query := `
 		INSERT INTO deployments (source, env_vars)
