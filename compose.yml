@@ -1,4 +1,17 @@
 services:
+
+  db:
+    env_file:
+      - .env
+    image: postgres:18.3-bookworm
+    networks:
+      - "appa_net"
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    volumes:
+      - appa_db:/var/lib/postgresql/data
+      - ./docker/postgresql/init:/docker-entrypoint-initdb.d:ro
   api:
     build:
       context: .
