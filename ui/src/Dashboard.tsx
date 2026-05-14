@@ -4,10 +4,10 @@ import Ansi from 'ansi-to-react'
 import { config } from './config'
 import { useToast } from './useToast'
 
-const AnsiComponent = (Ansi as any).default || Ansi;
+const AnsiComponent = ((Ansi as unknown) as { default?: typeof Ansi }).default || Ansi;
 
 interface Deployment {
-  id: string
+  id: number
   source: string
   status: 'pending' | 'building' | 'deploying' | 'running' | 'failed' | 'canceled' | 'stopped'
   image_tag: string | null
@@ -48,16 +48,16 @@ export function Dashboard() {
   const { addToast } = useToast()
 
   // Initialize state from URL hash if present
-  const [selectedId, setSelectedIdState] = useState<string | null>(() => {
+  const [selectedId, setSelectedIdState] = useState<number | null>(() => {
     const hash = window.location.hash.replace('#', '')
-    return hash || null
+    return hash ? Number(hash) || null : null
   })
 
   // Wrapper to keep URL in sync
-  const setSelectedId = useCallback((id: string | null) => {
+  const setSelectedId = useCallback((id: number | null) => {
     setSelectedIdState(id)
     if (id) {
-      window.location.hash = id
+      window.location.hash = String(id)
     } else {
       window.location.hash = ''
     }
@@ -67,7 +67,7 @@ export function Dashboard() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '')
-      setSelectedIdState(hash || null)
+      setSelectedIdState(hash ? Number(hash) || null : null)
     }
     window.addEventListener('hashchange', handleHashChange)
     return () => window.removeEventListener('hashchange', handleHashChange)
@@ -81,16 +81,17 @@ export function Dashboard() {
   const { data: deployments, isLoading } = useQuery({
     queryKey: ['deployments'],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/deployments`)
+      const res = await fetch(`${API_BASE}/v1/deployments`)
       if (!res.ok) throw new Error('Failed to fetch deployments')
-      return res.json() as Promise<Deployment[]>
+      const data = await res.json() as { deployments: Deployment[] }
+      return data.deployments
     },
     refetchInterval: 10000,
   })
 
   const deployMutation = useMutation({
     mutationFn: async (input: { source: string; env_vars: string }) => {
-      const res = await fetch(`${API_BASE}/deployments`, {
+      const res = await fetch(`${API_BASE}/v1/deployments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
@@ -105,7 +106,7 @@ export function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['deployments'] })
       setGitUrl('')
       setEnvVars('')
-      setSelectedId(data.id)
+      setSelectedId(data.deployment.id)
       addToast('Deployment started', 'success')
     },
     onError: (err: Error) => {
@@ -118,7 +119,7 @@ export function Dashboard() {
       const formData = new FormData()
       formData.append('file', input.file)
       formData.append('env_vars', input.env_vars)
-      const res = await fetch(`${API_BASE}/deployments/upload`, {
+      const res = await fetch(`${API_BASE}/v1/deployments/upload`, {
         method: 'POST',
         body: formData,
       })
@@ -131,7 +132,7 @@ export function Dashboard() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] })
       setEnvVars('')
-      setSelectedId(data.id)
+      setSelectedId(data.deployment.id)
       addToast('Project uploaded and deploying', 'success')
     },
     onError: (err: Error) => {
@@ -140,8 +141,8 @@ export function Dashboard() {
   })
 
   const cancelMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`${API_BASE}/deployments/${id}`, {
+    mutationFn: async (id: number) => {
+      const res = await fetch(`${API_BASE}/v1/deployments/${id}`, {
         method: 'PATCH',
       })
       if (!res.ok) {
@@ -166,7 +167,7 @@ export function Dashboard() {
     deployMutation.mutate({ source: gitUrl, env_vars: envVars })
   }
 
-  const handleStatusUpdate = useCallback((id: string, status: Deployment['status'], url?: string) => {
+  const handleStatusUpdate = useCallback((id: number, status: Deployment['status'], url?: string) => {
     queryClient.setQueryData(['deployments'], (old: Deployment[] | undefined) => {
       if (!old) return old
       return old.map((d) => (d.id === id ? { ...d, status, url: url || d.url } : d))
@@ -295,7 +296,7 @@ export function Dashboard() {
             >
               <div className="deployment-meta">
                 <span className={`status-badge status-${d.status}`}>{d.status}</span>
-                <span className="id-mono">{d.id.substring(0, 8)}</span>
+                <span className="id-mono">#{d.id}</span>
               </div>
               <div className="source-url" title={d.source}>{d.source}</div>
               {d.url && d.status === 'running' && (
@@ -320,7 +321,7 @@ export function Dashboard() {
             <div className="selected-header">
               <div className="top">
                 <div className="title-row">
-                  <h2>{selectedDeployment.id.substring(0, 8)}</h2>
+                  <h2>#{selectedDeployment.id}</h2>
                   <span className={`status-badge status-${selectedDeployment.status}`}>
                     {selectedDeployment.status}
                   </span>
@@ -398,8 +399,8 @@ function LogPanel({
   deploymentId,
   onStatusUpdate
 }: {
-  deploymentId: string;
-  onStatusUpdate: (id: string, status: Deployment['status'], url?: string) => void
+  deploymentId: number;
+  onStatusUpdate: (id: number, status: Deployment['status'], url?: string) => void
 }) {
   const { addToast } = useToast()
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -425,7 +426,7 @@ function LogPanel({
       }
 
       setWsStatus('connecting')
-      const ws = new WebSocket(`${WS_BASE}/deployments/${deploymentId}/logs`)
+      const ws = new WebSocket(`${WS_BASE}/v1/deployments/${deploymentId}/logs`)
       wsRef.current = ws
 
       ws.onopen = () => {

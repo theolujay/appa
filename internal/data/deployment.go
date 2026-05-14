@@ -1,8 +1,11 @@
 package data
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/theolujay/appa/internal/validator"
 )
@@ -44,9 +47,21 @@ type DeploymentUpdate struct {
 func ValidateDeployment(v *validator.Validator, d *Deployment) {
 	v.Check(d.Source != "", "source", "must be provided")
 	v.Check(len(d.Source) <= 500, "source", "must not be more than 500 bytes long")
+	if *d.EnvVars != "" {
+		i := validateEnvVars(*d.EnvVars)
+		v.Check(i == 0, "env_vars", fmt.Sprintf("invalid key-value pair at line %d", i))
+	}
+}
 
-	v.Check(d.Status != "", "status", "must be provided")
-	v.Check(validator.PermittedValue(d.Status, PENDING, BUILDING, DEPLOYING, RUNNING, CANCELED, STOPPED, FAILED), "status", "must be a valid status")
+func validateEnvVars(e string) int {
+	envPairs := strings.Split(e, "\n")
+	for i, env := range envPairs {
+		kv := strings.Split(env, "=")
+		if len(kv) != 2 {
+			return i
+		}
+	}
+	return 0
 }
 
 func (dm *DeploymentModel) CreateDeployment(d *Deployment) error {
@@ -59,38 +74,45 @@ func (dm *DeploymentModel) CreateDeployment(d *Deployment) error {
 	return dm.DB.QueryRow(query, d.Source, d.EnvVars).Scan(&d.ID, &d.Status, &d.CreatedAt, &d.Version)
 }
 
-func (s *DeploymentModel) GetDeployment(id int64) (Deployment, error) {
-	rows, err := s.DB.Query(
-		`SELECT id, source, status, image_tag, address, env_vars, url, created_at
-		FROM deployments WHERE id = ?`, id,
+func (dm *DeploymentModel) GetDeployment(id int64) (Deployment, error) {
+
+	query := `
+		SELECT id, source, status, image_tag, address, env_vars, url, created_at
+		FROM deployments WHERE id = $1
+	`
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	var d Deployment
+
+	err := dm.DB.QueryRowContext(ctx, query, id).Scan(
+		&d.ID,
+		&d.Source,
+		&d.Status,
+		&d.ImageTag,
+		&d.Address,
+		&d.EnvVars,
+		&d.URL,
+		&d.CreatedAt,
 	)
+
 	if err != nil {
 		return Deployment{}, err
 	}
-	defer rows.Close()
 
-	var deployments []Deployment
-
-	for rows.Next() {
-		var d Deployment
-		err := rows.Scan(&d.ID, &d.Source, &d.Status, &d.ImageTag, &d.Address, &d.EnvVars, &d.URL, &d.CreatedAt)
-		if err != nil {
-			return Deployment{}, err
-		}
-		deployments = append(deployments, d)
-	}
-	if len(deployments) == 0 {
-		return Deployment{}, sql.ErrNoRows
-	}
-	return deployments[0], nil
+	return d, nil
 }
 
-func (s *DeploymentModel) ListDeployments() ([]Deployment, error) {
-	rows, err := s.DB.Query(`
-        SELECT id, source, status, image_tag, address, env_vars, url, created_at
+func (dm *DeploymentModel) ListDeployments() ([]Deployment, error) {
+	query := `
+		SELECT id, source, status, image_tag, address, env_vars, url, created_at
         FROM deployments
         ORDER BY created_at DESC
-    `)
+	`
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	rows, err := dm.DB.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +122,16 @@ func (s *DeploymentModel) ListDeployments() ([]Deployment, error) {
 
 	for rows.Next() {
 		var d Deployment
-		err := rows.Scan(&d.ID, &d.Source, &d.Status, &d.ImageTag, &d.Address, &d.EnvVars, &d.URL, &d.CreatedAt)
+		err := rows.Scan(
+			&d.ID,
+			&d.Source,
+			&d.Status,
+			&d.ImageTag,
+			&d.Address,
+			&d.EnvVars,
+			&d.URL,
+			&d.CreatedAt,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -119,11 +150,14 @@ type LogEntry struct {
 	Line string `json:"line"`
 }
 
-func (s *DeploymentModel) GetLogs(deploymentID int64) ([]LogEntry, error) {
-	rows, err := s.DB.Query(
-		`SELECT id, line FROM logs WHERE deployment_id = ? ORDER BY id ASC`,
-		deploymentID,
-	)
+func (dm *DeploymentModel) GetLogs(deploymentID int64) ([]LogEntry, error) {
+
+	query := `SELECT id, line FROM logs WHERE deployment_id = $1 ORDER BY id ASC`
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	rows, err := dm.DB.QueryContext(ctx, query, deploymentID)
 	if err != nil {
 		return nil, err
 	}
@@ -140,40 +174,42 @@ func (s *DeploymentModel) GetLogs(deploymentID int64) ([]LogEntry, error) {
 	return logs, rows.Err()
 }
 
-func (s *DeploymentModel) AppendLog(deploymentID int64, phase, line string) (int64, error) {
-	res, err := s.DB.Exec(
-		`INSERT INTO logs (deployment_id, phase, line) VALUES (?, ?, ?)`,
-		deploymentID, phase, line,
-	)
+func (dm *DeploymentModel) AppendLog(deploymentID int64, phase, line string) (int64, error) {
+
+	query := `INSERT INTO logs (deployment_id, phase, line) VALUES ($1, $2, $3)`
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	res, err := dm.DB.ExecContext(ctx, query, deploymentID, phase, line)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-func (s *DeploymentModel) UpdateDeployment(id int64, u DeploymentUpdate) error {
+func (dm *DeploymentModel) UpdateDeployment(id int64, u DeploymentUpdate) error {
 	query := "UPDATE deployments SET "
 	var args []interface{}
 	var fields []string
 
 	if u.Status != nil {
-		fields = append(fields, "status = ?")
+		fields = append(fields, fmt.Sprintf("status = $%d", len(args)+1))
 		args = append(args, *u.Status)
 	}
 	if u.ImageTag != nil {
-		fields = append(fields, "image_tag = ?")
+		fields = append(fields, fmt.Sprintf("image_tag = $%d", len(args)+1))
 		args = append(args, *u.ImageTag)
 	}
 	if u.Address != nil {
-		fields = append(fields, "address = ?")
+		fields = append(fields, fmt.Sprintf("address = $%d", len(args)+1))
 		args = append(args, *u.Address)
 	}
 	if u.EnvVars != nil {
-		fields = append(fields, "env_vars = ?")
+		fields = append(fields, fmt.Sprintf("env_vars = $%d", len(args)+1))
 		args = append(args, *u.EnvVars)
 	}
 	if u.URL != nil {
-		fields = append(fields, "url = ?")
+		fields = append(fields, fmt.Sprintf("url = $%d", len(args)+1))
 		args = append(args, *u.URL)
 	}
 
@@ -182,9 +218,9 @@ func (s *DeploymentModel) UpdateDeployment(id int64, u DeploymentUpdate) error {
 	}
 
 	query += strings.Join(fields, ", ")
-	query += " WHERE id = ?"
+	query += fmt.Sprintf(" WHERE id = $%d", len(args)+1)
 	args = append(args, id)
 
-	_, err := s.DB.Exec(query, args...)
+	_, err := dm.DB.Exec(query, args...)
 	return err
 }

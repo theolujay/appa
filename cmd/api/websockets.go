@@ -1,9 +1,8 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -32,24 +31,23 @@ var upgrader = websocket.Upgrader{
 // upgrades the conn to WS, replays historical logs for the given deployment
 // then streams live log lines until client disconnects or pipeline finishes
 func (app *application) StreamLogs(w http.ResponseWriter, r *http.Request) {
-	idStr := r.PathValue("id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := app.readIDParam(r)
 	if err != nil || id < 1 {
-		http.Error(w, "invalid deployment id", http.StatusBadRequest)
+		app.badRequestResponse(w, r, err)
 		return
 	}
 
 	// HTTP -> WS
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("websocket upgrade failed: %v", err)
+		app.logger.Error(fmt.Sprintf("websocket upgrade failed: %v", err))
 		return
 	}
 
 	// Replay all historical logs before switching to live streaming.
 	logs, err := app.models.Deployments.GetLogs(id)
 	if err != nil {
-		log.Printf("failed to fetch historical logs for %d: %v", id, err)
+		app.logger.Error(fmt.Sprintf("failed to fetch historical logs for %d: %v", id, err))
 	}
 
 	var lastHistoryID int64
@@ -76,7 +74,9 @@ func (app *application) StreamLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	go writePump(conn, send, lastHistoryID)
+	app.background(func() {
+		writePump(conn, send, lastHistoryID)
+	})
 	readPump(conn, app.hub, c)
 }
 

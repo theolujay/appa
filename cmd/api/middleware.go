@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
+	"errors"
 	"expvar"
 	"fmt"
+	"net"
 	"net/http"
 	"slices"
 	"strconv"
@@ -274,4 +277,13 @@ func (mw *metricsResponseWriter) Write(b []byte) (int, error) {
 // The Unwrap() method returns the existing wrapped http.ResponseWriter
 func (mw *metricsResponseWriter) Unwrap() http.ResponseWriter {
 	return mw.wrapped
+}
+
+// Hijack implements http.Hijacker. It simply wraps the underlying
+// ResponseWriter's Hijack method if there's one, or returns an error.
+func (mw *metricsResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := mw.wrapped.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, errors.New("not a Hijacker")
 }

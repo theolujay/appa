@@ -1,3 +1,5 @@
+# include .envrc
+
 # ==================================================================================== #
 # HELPERS
 # ==================================================================================== #
@@ -25,7 +27,7 @@ run/api:
 		-smtp-port=${SMTP_PORT} \
 		-smtp-username=${SMTP_USERNAME} \
 		-smtp-password=${SMTP_PASSWORD} \
-		-smtp-sender="${SMTP_SENDER}"
+		-smtp-sender=${SMTP_SENDER}
 
 ## db/psql: connect to the database using psql
 .PHONY: db/psql

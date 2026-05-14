@@ -10,6 +10,6 @@ RUN curl -sSL https://railpack.com/install.sh | RAILPACK_VERSION=0.23.0 sh -s --
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o server ./cmd/server
+RUN GOOS=linux GOARCH=amd64 go build -ldflags='-s' -o=./bin/linux_amd64/api ./cmd/api
 
 EXPOSE 8080
