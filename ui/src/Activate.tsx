@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useSearch, Link } from '@tanstack/react-router'
 import { config } from './config'
 import { useToast } from './useToast'
+import { useAuth } from './AuthContext'
 
 const API_BASE = config.apiUrl
 
@@ -9,6 +10,7 @@ export function Activate() {
   const search = useSearch({ from: '/activate' }) as { token?: string }
   const [token, setToken] = useState(() => search.token ?? '')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const { logout } = useAuth()
   const { addToast } = useToast()
   const navigate = useNavigate()
 
@@ -30,7 +32,8 @@ export function Activate() {
         throw new Error(data.error || 'Activation failed')
       }
 
-      addToast('Account activated successfully! You can now login.', 'success')
+      logout()
+      addToast('Account activated! You can now log in.', 'success')
       navigate({ to: '/login' })
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Activation failed'

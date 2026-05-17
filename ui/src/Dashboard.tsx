@@ -85,14 +85,14 @@ export function Dashboard() {
     if (token) {
       headers.set('Authorization', `Bearer ${token}`)
     }
-    
+
     const res = await fetch(url, { ...options, headers })
-    
+
     if (res.status === 401) {
       logout()
       throw new Error('Session expired. Please login again.')
     }
-    
+
     return res
   }, [token, logout])
 
@@ -462,7 +462,7 @@ function LogPanel({
       if (token) {
         url.searchParams.set('token', token)
       }
-      
+
       const ws = new WebSocket(url.toString())
       wsRef.current = ws
 

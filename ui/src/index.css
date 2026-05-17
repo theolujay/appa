@@ -156,6 +156,21 @@ body {
   text-decoration: underline;
 }
 
+.loading-screen {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-primary);
+}
+
+.loading-screen .spinner {
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+}
+
 /* Form Styles */
 .deploy-form {
   padding: 24px;
