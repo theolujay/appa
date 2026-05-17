@@ -183,7 +183,7 @@ func (p *Pipeline) StopContainer(id int64) error {
 			return fmt.Errorf("failed to stop container %s: %w", containerName, err)
 		}
 	}
-	if err := p.RemoveRoute(id); err != nil {
+	if err := p.router.RemoveRoute(id); err != nil {
 		fmt.Printf("failed to remove caddy route for %d: %v\n", id, err)
 	}
 

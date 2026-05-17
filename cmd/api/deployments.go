@@ -15,6 +15,8 @@ import (
 )
 
 func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.Request) {
+	user := app.contextGetUser(r)
+
 	var input struct {
 		Source  string `json:"source"`
 		EnvVars string `json:"env_vars"`
@@ -28,6 +30,7 @@ func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.R
 	deployment := &data.Deployment{
 		Source:  input.Source,
 		EnvVars: &input.EnvVars,
+		UserID:  user.ID,
 	}
 
 	v := validator.New()
@@ -57,6 +60,8 @@ func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.R
 }
 
 func (app *application) uploadProjectHandler(w http.ResponseWriter, r *http.Request) {
+	user := app.contextGetUser(r)
+
 	if err := r.ParseMultipartForm(100 << 20); err != nil { // 100MB max
 		app.badRequestResponse(w, r, err)
 		return
@@ -90,6 +95,7 @@ func (app *application) uploadProjectHandler(w http.ResponseWriter, r *http.Requ
 	deployment := &data.Deployment{
 		Source:  "uploaded-project",
 		EnvVars: &envVars,
+		UserID:  user.ID,
 	}
 
 	if err = app.models.Deployments.Create(deployment); err != nil {
@@ -150,14 +156,33 @@ func unzip(r io.ReaderAt, size int64, dest string) error {
 }
 
 func (app *application) cancelDeploymentHandler(w http.ResponseWriter, r *http.Request) {
-	id, err := app.readIDParam(r)
+	user := app.contextGetUser(r)
 
-	if err != nil || id < 1 {
+
+	deploymentID, err := app.readIDParam(r)
+
+	if err != nil || deploymentID < 1 {
 		app.notFoundResponse(w, r)
 		return
 	}
 
-	if err := app.pipeline.Cancel(id); err != nil {
+	deployment, err := app.models.Deployments.Get(deploymentID)
+	if err != nil {
+		switch {
+		case errors.Is(err, data.ErrRecordNotFound):
+			app.notFoundResponse(w, r)
+		default:
+			app.serverErrorResponse(w, r, err)
+		}
+		return
+	}
+
+	if deployment.UserID != user.ID {
+		app.notPermittedResponse(w, r)
+		return
+	}
+
+	if err := app.pipeline.Cancel(deploymentID); err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
 	}
@@ -165,6 +190,8 @@ func (app *application) cancelDeploymentHandler(w http.ResponseWriter, r *http.R
 }
 
 func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Request) {
+	user := app.contextGetUser(r)
+
 	var input struct {
 		Status string
 		data.Filters
@@ -186,7 +213,7 @@ func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	deployments, metadata, err := app.models.Deployments.GetAll(input.Status, input.Filters)
+	deployments, metadata, err := app.models.Deployments.GetAll(user.ID, input.Status, input.Filters)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
