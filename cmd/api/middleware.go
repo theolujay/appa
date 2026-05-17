@@ -21,11 +21,15 @@ import (
 
 func (app *application) secureHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") == "websocket" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		w.Header().Set(
 			"Content-Security-Policy",
 			"default-src 'self'; style-src 'self' fonts.googleapis.com; font-src fonts.gstatic.com",
 		)
-		w.Header().Set("Referre-Policy", "origin-when-cross-origin")
+		w.Header().Set("Referrer-Policy", "origin-when-cross-origin")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "deny")
 		w.Header().Set("X-XSS-Protection", "0")
@@ -304,6 +308,7 @@ func (app *application) authenticate(next http.Handler) http.Handler {
 		if authorizationHeader != "" {
 			headerParts := strings.Split(authorizationHeader, " ")
 			if len(headerParts) != 2 || headerParts[0] != "Bearer" {
+				app.logger.Warn("invalid authorization header format")
 				app.invalidAuthenticationTokenResponse(w, r)
 				return
 			}
@@ -311,16 +316,19 @@ func (app *application) authenticate(next http.Handler) http.Handler {
 			token = headerParts[1]
 		} else {
 			token = r.URL.Query().Get("token")
-			if token == "" {
-				r = app.contextSetUser(r, data.AnonymousUser)
+		}
 
-				next.ServeHTTP(w, r)
-			}
+		if token == "" {
+			app.logger.Info("no token provided, setting anonymous user")
+			r = app.contextSetUser(r, data.AnonymousUser)
+			next.ServeHTTP(w, r)
+			return
 		}
 
 		v := validator.New()
 
 		if data.ValidateTokenPlaintext(v, token); !v.Valid() {
+			app.logger.Warn("invalid token format", "token", token)
 			app.invalidAuthenticationTokenResponse(w, r)
 			return
 		}
@@ -329,13 +337,16 @@ func (app *application) authenticate(next http.Handler) http.Handler {
 		if err != nil {
 			switch {
 			case errors.Is(err, data.ErrRecordNotFound):
+				app.logger.Warn("token not found in database", "token", token)
 				app.invalidAuthenticationTokenResponse(w, r)
 			default:
+				app.logger.Error("failed to get user for token", "error", err)
 				app.serverErrorResponse(w, r, err)
 			}
 			return
 		}
 
+		app.logger.Info("authenticated user", "user_id", user.ID, "email", user.Email)
 		r = app.contextSetUser(r, user)
 
 		next.ServeHTTP(w, r)

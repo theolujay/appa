@@ -219,7 +219,7 @@ func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	err = app.writeJSON(w, http.StatusAccepted, envelope{"deployments": deployments, "metadata": metadata}, nil)
+	err = app.writeJSON(w, http.StatusOK, envelope{"deployments": deployments, "metadata": metadata}, nil)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return

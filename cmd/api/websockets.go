@@ -1,11 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/theolujay/appa/internal/data"
 	"github.com/theolujay/appa/internal/hub"
 )
 
@@ -31,18 +33,40 @@ var upgrader = websocket.Upgrader{
 // upgrades the conn to WS, replays historical logs for the given deployment
 // then streams live log lines until client disconnects or pipeline finishes
 func (app *application) streamLogsHandler(w http.ResponseWriter, r *http.Request) {
+	app.logger.Info("starting streamLogsHandler")
+	user := app.contextGetUser(r)
+	
 	id, err := app.readIDParam(r)
 	if err != nil || id < 1 {
 		app.badRequestResponse(w, r, err)
 		return
 	}
 
+	deployment, err := app.models.Deployments.Get(id)
+	if err != nil {
+		switch{
+		case errors.Is(err, data.ErrRecordNotFound):
+			app.notFoundResponse(w, r)
+		default:
+			app.serverErrorResponse(w, r, err)
+		}
+		return
+	}
+
+	if deployment.UserID != user.ID {
+		app.logger.Warn("user not permitted to view logs", "user_id", user.ID, "deployment_id", id, "owner_id", deployment.UserID)
+		app.notPermittedResponse(w, r)
+		return
+	}
+
+	app.logger.Info("upgrading connection to websocket", "deployment_id", id)
 	// HTTP -> WS
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		app.logger.Error(fmt.Sprintf("websocket upgrade failed: %v", err))
+		app.logger.Error("websocket upgrade failed", "error", err)
 		return
 	}
+	app.logger.Info("websocket upgrade successful", "deployment_id", id)
 
 	// Replay all historical logs before switching to live streaming.
 	logs, err := app.models.Deployments.GetLogs(id)

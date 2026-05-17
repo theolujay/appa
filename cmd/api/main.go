@@ -136,6 +136,7 @@ func main() {
 		mailer: mailer,
 		hub:    hub.New(),
 	}
+
 	router := pipeline.NewRouter("caddy:2019")
 	app.pipeline = pipeline.New(&app.models.Deployments, app.hub, router)
 	app.background(func() {

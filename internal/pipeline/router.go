@@ -81,7 +81,7 @@ func (r *Router) AddRoute(id int64, address string) error {
 				},
 			},
 		},
-		Terminal: true,
+		Terminal: false,
 	}
 
 	body, err := json.Marshal(route)
