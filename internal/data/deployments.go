@@ -64,7 +64,7 @@ func validateEnvVars(e string) int {
 	return 0
 }
 
-func (dm *DeploymentModel) CreateDeployment(d *Deployment) error {
+func (dm *DeploymentModel) Create(d *Deployment) error {
 	query := `
 		INSERT INTO deployments (source, env_vars)
 		VALUES($1, $2)
@@ -74,7 +74,7 @@ func (dm *DeploymentModel) CreateDeployment(d *Deployment) error {
 	return dm.DB.QueryRow(query, d.Source, d.EnvVars).Scan(&d.ID, &d.Status, &d.CreatedAt, &d.Version)
 }
 
-func (dm *DeploymentModel) GetDeployment(id int64) (Deployment, error) {
+func (dm *DeploymentModel) Get(id int64) (Deployment, error) {
 
 	query := `
 		SELECT id, source, status, image_tag, address, env_vars, url, created_at
@@ -103,26 +103,31 @@ func (dm *DeploymentModel) GetDeployment(id int64) (Deployment, error) {
 	return d, nil
 }
 
-func (dm *DeploymentModel) ListDeployments() ([]Deployment, error) {
-	query := `
-		SELECT id, source, status, image_tag, address, env_vars, url, created_at
+func (dm *DeploymentModel) GetAll(status string, filters Filters) ([]*Deployment, Metadata, error) {
+	query := fmt.Sprintf(`
+		SELECT count(*) OVER(), id, source, status, image_tag, address, env_vars, url, created_at, version
         FROM deployments
-        ORDER BY created_at DESC
-	`
+		WHERE (LOWER(status) = LOWER($1) OR $1 = '')
+        ORDER BY %s %s, id ASC
+		LIMIT $2 OFFSET $3
+	`, filters.sortColumn(), filters.sortDirection())
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	rows, err := dm.DB.QueryContext(ctx, query)
+	rows, err := dm.DB.QueryContext(ctx, query, status, filters.limit(), filters.offset())
 	if err != nil {
-		return nil, err
+		return nil, Metadata{}, err
 	}
 	defer rows.Close()
 
-	var deployments []Deployment
+	totalRecords := 0
+	deployments := []*Deployment{}
 
 	for rows.Next() {
 		var d Deployment
 		err := rows.Scan(
+			&totalRecords,
 			&d.ID,
 			&d.Source,
 			&d.Status,
@@ -131,18 +136,21 @@ func (dm *DeploymentModel) ListDeployments() ([]Deployment, error) {
 			&d.EnvVars,
 			&d.URL,
 			&d.CreatedAt,
+			&d.Version,
 		)
 		if err != nil {
-			return nil, err
+			return nil, Metadata{}, err
 		}
-		deployments = append(deployments, d)
+		deployments = append(deployments, &d)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, Metadata{}, err
 	}
 
-	return deployments, nil
+	metadata := calculateMetadata(totalRecords, filters.Page, filters.PageSize)
+
+	return deployments, metadata, nil
 }
 
 type LogEntry struct {
@@ -187,7 +195,7 @@ func (dm *DeploymentModel) AppendLog(deploymentID int64, phase, line string) (in
 	return res.LastInsertId()
 }
 
-func (dm *DeploymentModel) UpdateDeployment(id int64, u DeploymentUpdate) error {
+func (dm *DeploymentModel) Update(id int64, u DeploymentUpdate) error {
 	query := "UPDATE deployments SET "
 	var args []interface{}
 	var fields []string

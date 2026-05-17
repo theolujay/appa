@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS logs (
     id BIGSERIAL PRIMARY KEY,
-    deployment_id BIGINT NOT NULL REFERENCES deployments(id),
+    deployment_id BIGINT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
     phase TEXT NOT NULL,
     line TEXT NOT NULL,
     ts TIMESTAMP(0) WITH TIME ZONE NOT NULL DEFAULT NOW()

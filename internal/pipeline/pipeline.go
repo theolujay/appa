@@ -44,7 +44,7 @@ func (p *Pipeline) Run(d *data.Deployment) {
 		if ctx.Err() == context.Canceled {
 			status = data.CANCELED
 		}
-		p.deployment.UpdateDeployment(d.ID, data.DeploymentUpdate{Status: &status})
+		p.deployment.Update(d.ID, data.DeploymentUpdate{Status: &status})
 		msg := fmt.Sprintf("build failed: %v", err)
 		logID, _ := p.deployment.AppendLog(d.ID, "build", msg)
 		p.hub.PublishLog(d.ID, hub.LogMessage{ID: logID, Line: msg})
@@ -58,7 +58,7 @@ func (p *Pipeline) Run(d *data.Deployment) {
 		if ctx.Err() == context.Canceled {
 			status = data.CANCELED
 		}
-		p.deployment.UpdateDeployment(d.ID, data.DeploymentUpdate{Status: &status})
+		p.deployment.Update(d.ID, data.DeploymentUpdate{Status: &status})
 		msg := fmt.Sprintf("deployment failed: %v", err)
 		logID, _ := p.deployment.AppendLog(d.ID, "deploy", msg)
 		p.hub.PublishLog(d.ID, hub.LogMessage{ID: logID, Line: msg})
@@ -68,7 +68,7 @@ func (p *Pipeline) Run(d *data.Deployment) {
 
 	if err := p.AddRoute(d.ID, address); err != nil {
 		status = data.FAILED
-		p.deployment.UpdateDeployment(d.ID, data.DeploymentUpdate{Status: &status})
+		p.deployment.Update(d.ID, data.DeploymentUpdate{Status: &status})
 		msg := fmt.Sprintf("routing failed: %v", err)
 		logID, _ := p.deployment.AppendLog(d.ID, "deploy", msg)
 		p.hub.PublishLog(d.ID, hub.LogMessage{ID: logID, Line: msg})
@@ -79,7 +79,7 @@ func (p *Pipeline) Run(d *data.Deployment) {
 	url := fmt.Sprintf("http://%d.localhost", d.ID)
 
 	status = data.RUNNING
-	p.deployment.UpdateDeployment(d.ID, data.DeploymentUpdate{
+	p.deployment.Update(d.ID, data.DeploymentUpdate{
 		Status:  &status,
 		URL:     &url,
 		Address: &address,
@@ -92,7 +92,14 @@ func (p *Pipeline) Run(d *data.Deployment) {
 }
 
 func (p *Pipeline) SyncRoutes() error {
-	deployments, err := p.deployment.ListDeployments()
+	filters := data.Filters{
+		Page:         1,
+		PageSize:     100,
+		Sort:         "id",
+		SortSafelist: []string{"id"},
+	}
+
+	deployments, _, err := p.deployment.GetAll(data.RUNNING, filters)
 	if err != nil {
 		return fmt.Errorf("failed to list deployments for sync: %w", err)
 	}

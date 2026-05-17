@@ -14,7 +14,7 @@ import (
 	"github.com/theolujay/appa/internal/validator"
 )
 
-func (app *application) CreateDeployment(w http.ResponseWriter, r *http.Request) {
+func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Source  string `json:"source"`
 		EnvVars string `json:"env_vars"`
@@ -37,7 +37,7 @@ func (app *application) CreateDeployment(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := app.models.Deployments.CreateDeployment(deployment); err != nil {
+	if err := app.models.Deployments.Create(deployment); err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
 	}
@@ -56,7 +56,7 @@ func (app *application) CreateDeployment(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-func (app *application) UploadProject(w http.ResponseWriter, r *http.Request) {
+func (app *application) uploadProjectHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(100 << 20); err != nil { // 100MB max
 		app.badRequestResponse(w, r, err)
 		return
@@ -92,7 +92,7 @@ func (app *application) UploadProject(w http.ResponseWriter, r *http.Request) {
 		EnvVars: &envVars,
 	}
 
-	if err = app.models.Deployments.CreateDeployment(deployment); err != nil {
+	if err = app.models.Deployments.Create(deployment); err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
 	}
@@ -149,7 +149,7 @@ func unzip(r io.ReaderAt, size int64, dest string) error {
 	return nil
 }
 
-func (app *application) CancelDeployment(w http.ResponseWriter, r *http.Request) {
+func (app *application) cancelDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := app.readIDParam(r)
 
 	if err != nil || id < 1 {
@@ -164,32 +164,37 @@ func (app *application) CancelDeployment(w http.ResponseWriter, r *http.Request)
 
 }
 
-func (app *application) ListDeployments(w http.ResponseWriter, r *http.Request) {
-	deployments, err := app.models.Deployments.ListDeployments()
+func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Status string
+		data.Filters
+	}
+
+	v := validator.New()
+	qs := r.URL.Query()
+
+	input.Status = app.readString(qs, "status", "")
+
+	input.Filters.Page = app.readInt(qs, "page", 1, v)
+	input.Filters.PageSize = app.readInt(qs, "page_size", 20, v)
+
+	input.Filters.Sort = app.readString(qs, "sort", "id")
+	input.Filters.SortSafelist = []string{"id", "status"}
+
+	if data.ValidateFilters(v, input.Filters); !v.Valid() {
+		app.failedValidationResponse(w, r, v.Errors)
+		return
+	}
+
+	deployments, metadata, err := app.models.Deployments.GetAll(input.Status, input.Filters)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
 	}
 
-	err = app.writeJSON(w, http.StatusAccepted, envelope{"deployments": deployments}, nil)
+	err = app.writeJSON(w, http.StatusAccepted, envelope{"deployments": deployments, "metadata": metadata}, nil)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
 	}
-}
-
-func CORSMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
 }

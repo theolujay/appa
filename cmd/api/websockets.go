@@ -30,7 +30,7 @@ var upgrader = websocket.Upgrader{
 
 // upgrades the conn to WS, replays historical logs for the given deployment
 // then streams live log lines until client disconnects or pipeline finishes
-func (app *application) StreamLogs(w http.ResponseWriter, r *http.Request) {
+func (app *application) streamLogsHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := app.readIDParam(r)
 	if err != nil || id < 1 {
 		app.badRequestResponse(w, r, err)
