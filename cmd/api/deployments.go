@@ -158,7 +158,6 @@ func unzip(r io.ReaderAt, size int64, dest string) error {
 func (app *application) cancelDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 	user := app.contextGetUser(r)
 
-
 	deploymentID, err := app.readIDParam(r)
 
 	if err != nil || deploymentID < 1 {

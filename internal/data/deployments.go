@@ -127,7 +127,7 @@ func (dm *DeploymentModel) GetAll(userID int64, status string, filters Filters) 
 	totalRecords := 0
 	metadata := Metadata{}
 	deployments := []*Deployment{}
-	
+
 	query := fmt.Sprintf(`
 		SELECT count(*) OVER(), id, user_id, source, status, image_tag, address, env_vars, url, created_at, version
         FROM deployments

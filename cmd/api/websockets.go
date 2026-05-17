@@ -35,7 +35,7 @@ var upgrader = websocket.Upgrader{
 func (app *application) streamLogsHandler(w http.ResponseWriter, r *http.Request) {
 	app.logger.Info("starting streamLogsHandler")
 	user := app.contextGetUser(r)
-	
+
 	id, err := app.readIDParam(r)
 	if err != nil || id < 1 {
 		app.badRequestResponse(w, r, err)
@@ -44,7 +44,7 @@ func (app *application) streamLogsHandler(w http.ResponseWriter, r *http.Request
 
 	deployment, err := app.models.Deployments.Get(id)
 	if err != nil {
-		switch{
+		switch {
 		case errors.Is(err, data.ErrRecordNotFound):
 			app.notFoundResponse(w, r)
 		default:

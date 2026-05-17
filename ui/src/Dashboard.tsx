@@ -495,8 +495,14 @@ function LogPanel({
     connect()
     return () => {
       if (wsRef.current) {
-        wsRef.current.onclose = null
-        wsRef.current.close()
+        if (wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.onclose = null
+          wsRef.current.close()
+        } else {
+          wsRef.current.onopen = null
+          wsRef.current.onerror = null
+          wsRef.current.onclose = null
+        }
       }
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
     }
