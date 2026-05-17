@@ -19,7 +19,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-func secureHeaders(next http.Handler) http.Handler {
+func (app *application) secureHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(
 			"Content-Security-Policy",
@@ -300,19 +300,23 @@ func (app *application) authenticate(next http.Handler) http.Handler {
 		w.Header().Add("Vary", "Authorization")
 
 		authorizationHeader := r.Header.Get("Authorization")
-		if authorizationHeader == "" {
-			r = app.contextSetUser(r, data.AnonymousUser)
-			next.ServeHTTP(w, r)
-			return
-		}
+		token := ""
+		if authorizationHeader != "" {
+			headerParts := strings.Split(authorizationHeader, " ")
+			if len(headerParts) != 2 || headerParts[0] != "Bearer" {
+				app.invalidAuthenticationTokenResponse(w, r)
+				return
+			}
 
-		headerParts := strings.Split(authorizationHeader, " ")
-		if len(headerParts) != 2 || headerParts[0] != "Bearer" {
-			app.invalidAuthenticationTokenResponse(w, r)
-			return
-		}
+			token = headerParts[1]
+		} else {
+			token = r.URL.Query().Get("token")
+			if token == "" {
+				r = app.contextSetUser(r, data.AnonymousUser)
 
-		token := headerParts[1]
+				next.ServeHTTP(w, r)
+			}
+		}
 
 		v := validator.New()
 

@@ -138,14 +138,19 @@ func (r *Router) RestoreRoutes(dm *data.DeploymentModel) error {
 	}
 
 	fmt.Println("Syncing active deployment routes with Caddy...")
-	for _, d := range deployments {
-		if d.Status == data.RUNNING && d.Address != nil {
-			fmt.Printf("Restoring route for %d -> %s\n", d.ID, *d.Address)
-			err = r.AddRoute(d.ID, *d.Address)
-			if err != nil {
-				fmt.Printf("failed to restore route for %d: %v\n", d.ID, err)
+	if len(deployments) < 1 {
+		fmt.Println("No active deployments found. Skipping...")
+	} else {
+		for _, d := range deployments {
+			if d.Status == data.RUNNING && d.Address != nil {
+				fmt.Printf("Restoring route for %d -> %s\n", d.ID, *d.Address)
+				err = r.AddRoute(d.ID, *d.Address)
+				if err != nil {
+					fmt.Printf("failed to restore route for %d: %v\n", d.ID, err)
+				}
 			}
 		}
+		fmt.Printf("Synced active deployments")
 	}
 	return nil
 }
