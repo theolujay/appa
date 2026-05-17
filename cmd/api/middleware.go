@@ -9,20 +9,27 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/theolujay/appa/internal/data"
+	"github.com/theolujay/appa/internal/validator"
 	"github.com/tomasen/realip"
 	"golang.org/x/time/rate"
 )
 
-func secureHeaders(next http.Handler) http.Handler {
+func (app *application) secureHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") == "websocket" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		w.Header().Set(
 			"Content-Security-Policy",
 			"default-src 'self'; style-src 'self' fonts.googleapis.com; font-src fonts.gstatic.com",
 		)
-		w.Header().Set("Referre-Policy", "origin-when-cross-origin")
+		w.Header().Set("Referrer-Policy", "origin-when-cross-origin")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "deny")
 		w.Header().Set("X-XSS-Protection", "0")
@@ -286,4 +293,91 @@ func (mw *metricsResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 		return hj.Hijack()
 	}
 	return nil, nil, errors.New("not a Hijacker")
+}
+
+func (app *application) authenticate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Add the "Vary: Authorization" header to the response. This indicates to any
+		// caches that the response may vary based on the value of the Authorization
+		// header in the request. Without it, a cache might serve the same response
+		// to different users, which is a serious security bug.
+		w.Header().Add("Vary", "Authorization")
+
+		authorizationHeader := r.Header.Get("Authorization")
+		token := ""
+		if authorizationHeader != "" {
+			headerParts := strings.Split(authorizationHeader, " ")
+			if len(headerParts) != 2 || headerParts[0] != "Bearer" {
+				app.logger.Warn("invalid authorization header format")
+				app.invalidAuthenticationTokenResponse(w, r)
+				return
+			}
+
+			token = headerParts[1]
+		} else {
+			token = r.URL.Query().Get("token")
+		}
+
+		if token == "" {
+			app.logger.Info("no token provided, setting anonymous user")
+			r = app.contextSetUser(r, data.AnonymousUser)
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		v := validator.New()
+
+		if data.ValidateTokenPlaintext(v, token); !v.Valid() {
+			app.logger.Warn("invalid token format", "token", token)
+			app.invalidAuthenticationTokenResponse(w, r)
+			return
+		}
+
+		user, err := app.models.Users.GetForToken(data.ScopeAuthentication, token)
+		if err != nil {
+			switch {
+			case errors.Is(err, data.ErrRecordNotFound):
+				app.logger.Warn("token not found in database", "token", token)
+				app.invalidAuthenticationTokenResponse(w, r)
+			default:
+				app.logger.Error("failed to get user for token", "error", err)
+				app.serverErrorResponse(w, r, err)
+			}
+			return
+		}
+
+		app.logger.Info("authenticated user", "user_id", user.ID, "email", user.Email)
+		r = app.contextSetUser(r, user)
+
+		next.ServeHTTP(w, r)
+
+	})
+}
+
+func (app *application) requireAuthenticatedUser(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := app.contextGetUser(r)
+
+		if user.IsAnonymous() {
+			app.authenticationRequiredResponse(w, r)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (app *application) requireActivatedUser(next http.HandlerFunc) http.HandlerFunc {
+	fn := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := app.contextGetUser(r)
+
+		if !user.Activated {
+			app.inactiveAccountResponse(w, r)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+
+	return app.requireAuthenticatedUser(fn)
 }

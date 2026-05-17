@@ -23,7 +23,7 @@ import (
 // as failed.
 func (p *Pipeline) Build(ctx context.Context, id int64, source string) (string, error) {
 	status := "building"
-	if err := p.deployment.UpdateDeployment(id, data.DeploymentUpdate{Status: &status}); err != nil {
+	if err := p.deployment.Update(id, data.DeploymentUpdate{Status: &status}); err != nil {
 		return "", fmt.Errorf("failed to update status: %w", err)
 	}
 	p.hub.PublishStatus(id, status, "")
@@ -67,7 +67,7 @@ func (p *Pipeline) Build(ctx context.Context, id int64, source string) (string, 
 	ctxWT, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 
-	deployment, _ := p.deployment.GetDeployment(id)
+	deployment, _ := p.deployment.Get(id)
 
 	cmd := exec.CommandContext(ctxWT, "railpack", "build", "--name", imageTag, buildDir)
 

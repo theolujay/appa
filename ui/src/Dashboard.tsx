@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Ansi from 'ansi-to-react'
 import { config } from './config'
 import { useToast } from './useToast'
+import { useAuth } from './AuthContext'
 
 const AnsiComponent = ((Ansi as unknown) as { default?: typeof Ansi }).default || Ansi;
 
@@ -46,6 +47,7 @@ const WS_BASE = config.wsUrl
 export function Dashboard() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
+  const { user, token, logout } = useAuth()
 
   // Initialize state from URL hash if present
   const [selectedId, setSelectedIdState] = useState<number | null>(() => {
@@ -78,10 +80,26 @@ export function Dashboard() {
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const fetchWithAuth = useCallback(async (url: string, options: RequestInit = {}) => {
+    const headers = new Headers(options.headers)
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`)
+    }
+
+    const res = await fetch(url, { ...options, headers })
+
+    if (res.status === 401) {
+      logout()
+      throw new Error('Session expired. Please login again.')
+    }
+
+    return res
+  }, [token, logout])
+
   const { data: deployments, isLoading } = useQuery({
     queryKey: ['deployments'],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/v1/deployments`)
+      const res = await fetchWithAuth(`${API_BASE}/v1/deployments`)
       if (!res.ok) throw new Error('Failed to fetch deployments')
       const data = await res.json() as { deployments: Deployment[] }
       return data.deployments
@@ -91,7 +109,7 @@ export function Dashboard() {
 
   const deployMutation = useMutation({
     mutationFn: async (input: { source: string; env_vars: string }) => {
-      const res = await fetch(`${API_BASE}/v1/deployments`, {
+      const res = await fetchWithAuth(`${API_BASE}/v1/deployments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
@@ -119,7 +137,7 @@ export function Dashboard() {
       const formData = new FormData()
       formData.append('file', input.file)
       formData.append('env_vars', input.env_vars)
-      const res = await fetch(`${API_BASE}/v1/deployments/upload`, {
+      const res = await fetchWithAuth(`${API_BASE}/v1/deployments/upload`, {
         method: 'POST',
         body: formData,
       })
@@ -142,7 +160,7 @@ export function Dashboard() {
 
   const cancelMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await fetch(`${API_BASE}/v1/deployments/${id}`, {
+      const res = await fetchWithAuth(`${API_BASE}/v1/deployments/${id}`, {
         method: 'PATCH',
       })
       if (!res.ok) {
@@ -211,7 +229,17 @@ export function Dashboard() {
     <div className="app-container">
       <div className="left-panel">
         <div className="header">
-          <h1>appa</h1>
+          <div className="header-content">
+            <h1>appa</h1>
+            <div className="user-profile">
+              <span className="user-name" title={user?.email}>{user?.name}</span>
+              <button className="btn-logout" onClick={logout} title="Logout">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>
 
         <div
@@ -379,6 +407,7 @@ export function Dashboard() {
               key={selectedDeployment.id}
               deploymentId={selectedDeployment.id}
               onStatusUpdate={handleStatusUpdate}
+              token={token}
             />
           </>
         ) : (
@@ -397,10 +426,12 @@ export function Dashboard() {
 
 function LogPanel({
   deploymentId,
-  onStatusUpdate
+  onStatusUpdate,
+  token
 }: {
   deploymentId: number;
   onStatusUpdate: (id: number, status: Deployment['status'], url?: string) => void
+  token: string | null
 }) {
   const { addToast } = useToast()
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -426,12 +457,17 @@ function LogPanel({
       }
 
       setWsStatus('connecting')
-      const ws = new WebSocket(`${WS_BASE}/v1/deployments/${deploymentId}/logs`)
+      // Pass token as query param for WebSocket authentication
+      const url = new URL(`${WS_BASE}/v1/deployments/${deploymentId}/logs`)
+      if (token) {
+        url.searchParams.set('token', token)
+      }
+
+      const ws = new WebSocket(url.toString())
       wsRef.current = ws
 
       ws.onopen = () => {
         setWsStatus('connected')
-        // setLogs([]) // Clear logs on successful (re)connect to prevent duplication
       }
 
       ws.onmessage = (event) => {
@@ -450,7 +486,6 @@ function LogPanel({
 
       ws.onclose = () => {
         setWsStatus('reconnecting')
-        // Short delay for quick recovery if Caddy reloads during handshake
         reconnectTimeoutRef.current = window.setTimeout(connect, 500)
       }
 
@@ -460,12 +495,18 @@ function LogPanel({
     connect()
     return () => {
       if (wsRef.current) {
-        wsRef.current.onclose = null
-        wsRef.current.close()
+        if (wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.onclose = null
+          wsRef.current.close()
+        } else {
+          wsRef.current.onopen = null
+          wsRef.current.onerror = null
+          wsRef.current.onclose = null
+        }
       }
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
     }
-  }, [deploymentId, onStatusUpdate, addToast])
+  }, [deploymentId, onStatusUpdate, addToast, token])
 
   useEffect(() => {
     if (autoScroll && logEndRef.current) {

@@ -20,7 +20,7 @@ import (
 // running contianer so the router can configure Caddy to point at it.
 func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string) (string, error) {
 	status := data.DEPLOYING
-	if err := p.deployment.UpdateDeployment(id, data.DeploymentUpdate{Status: &status}); err != nil {
+	if err := p.deployment.Update(id, data.DeploymentUpdate{Status: &status}); err != nil {
 		return "", fmt.Errorf("failed to update status: %w", err)
 	}
 	p.hub.PublishStatus(id, status, "")
@@ -67,7 +67,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 	}
 
 	// prepare env vars
-	deployment, _ := p.deployment.GetDeployment(id)
+	deployment, _ := p.deployment.Get(id)
 	var env []string
 	if deployment.EnvVars != nil && *deployment.EnvVars != "" {
 		lines := strings.Split(*deployment.EnvVars, "\n")
@@ -183,11 +183,11 @@ func (p *Pipeline) StopContainer(id int64) error {
 			return fmt.Errorf("failed to stop container %s: %w", containerName, err)
 		}
 	}
-	if err := p.RemoveRoute(id); err != nil {
+	if err := p.router.RemoveRoute(id); err != nil {
 		fmt.Printf("failed to remove caddy route for %d: %v\n", id, err)
 	}
 
-	p.deployment.UpdateDeployment(
+	p.deployment.Update(
 		id,
 		data.DeploymentUpdate{
 			URL:      &URL,

@@ -136,7 +136,14 @@ func main() {
 		mailer: mailer,
 		hub:    hub.New(),
 	}
-	app.pipeline = pipeline.New(&app.models.Deployments, app.hub)
+
+	router := pipeline.NewRouter("caddy:2019")
+	app.pipeline = pipeline.New(&app.models.Deployments, app.hub, router)
+	app.background(func() {
+		if err := router.RestoreRoutes(&app.models.Deployments); err != nil {
+			app.logger.Error(err.Error())
+		}
+	})
 
 	err = app.serve()
 	if err != nil {
