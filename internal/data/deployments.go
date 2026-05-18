@@ -60,7 +60,7 @@ func validateEnvVars(e string) int {
 	for i, env := range envPairs {
 		kv := strings.Split(env, "=")
 		if len(kv) != 2 {
-			return i
+			return i + 1
 		}
 	}
 	return 0
@@ -213,15 +213,16 @@ func (dm *DeploymentModel) GetLogs(id int64) ([]LogEntry, error) {
 
 func (dm *DeploymentModel) AppendLog(id int64, phase, line string) (int64, error) {
 
-	query := `INSERT INTO logs (deployment_id, phase, line) VALUES ($1, $2, $3)`
+	query := `INSERT INTO logs (deployment_id, phase, line) VALUES ($1, $2, $3) RETURNING id`
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	res, err := dm.DB.ExecContext(ctx, query, id, phase, line)
+	var logID int64
+	err := dm.DB.QueryRowContext(ctx, query, id, phase, line).Scan(&logID)
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	return logID, nil
 }
 
 func (dm *DeploymentModel) Update(id int64, u DeploymentUpdate) error {

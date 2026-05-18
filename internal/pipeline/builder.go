@@ -72,7 +72,7 @@ func (p *Pipeline) Build(ctx context.Context, id int64, source string) (string, 
 	cmd := exec.CommandContext(ctxWT, "railpack", "build", "--name", imageTag, buildDir)
 
 	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, "RAILPACK_CACHE_DIR=/usr/local/share/railpack")
+	cmd.Env = append(cmd.Env, "RAILPACK_CACHE_DIR=/tmp/railpack")
 
 	if deployment.EnvVars != nil && *deployment.EnvVars != "" {
 		envLines := strings.Split(*deployment.EnvVars, "\n")

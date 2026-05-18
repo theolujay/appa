@@ -86,22 +86,29 @@ func (app *application) streamLogsHandler(w http.ResponseWriter, r *http.Request
 	c := hub.NewClient(id, send)
 	app.hub.Register(c)
 	// Send history to client as "log" events
+	app.logger.Debug("sending historical logs", "count", len(logs), "deployment_id", id)
 	for _, l := range logs {
 		event := hub.Event{
 			Type: hub.MessageTypeLog,
 			Log:  &hub.LogMessage{ID: l.ID, Line: l.Line},
 		}
 		if err := conn.WriteJSON(event); err != nil {
+			app.logger.Debug("failed to send historical log", "log_id", l.ID, "error", err)
 			app.hub.Unregister(c)
 			conn.Close()
 			return
 		}
 	}
+	app.logger.Debug("historical logs sent successfully", "deployment_id", id)
 
 	app.background(func() {
+		app.logger.Debug("starting writePump", "deployment_id", id)
 		writePump(conn, send, lastHistoryID)
+		app.logger.Debug("writePump finished", "deployment_id", id)
 	})
-	readPump(conn, app.hub, c)
+	app.logger.Debug("starting readPump", "deployment_id", id)
+	app.readPump(conn, c)
+	app.logger.Debug("readPump finished, handler exiting", "deployment_id", id)
 }
 
 // drains the send channel and writes each line to the WebSocket.
@@ -137,9 +144,9 @@ func writePump(conn *websocket.Conn, send <-chan hub.Event, lastHistoryID int64)
 
 // reads from the WebSocket to handle pongs and detect disconnection.
 // When the clinet disconnects, it unregisters them from the hub and returns
-func readPump(conn *websocket.Conn, app *hub.Hub, c *hub.Client) {
+func (app *application) readPump(conn *websocket.Conn, c *hub.Client) {
 	defer func() {
-		app.Unregister(c)
+		app.hub.Unregister(c)
 		conn.Close()
 	}()
 
@@ -154,7 +161,11 @@ func readPump(conn *websocket.Conn, app *hub.Hub, c *hub.Client) {
 
 	// Discard any messages the client sends
 	for {
-		if _, _, err := conn.ReadMessage(); err != nil {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				app.logger.Debug("websocket read error", "error", err)
+			}
 			return
 		}
 	}
