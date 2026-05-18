@@ -1,15 +1,18 @@
-FROM golang:1.26.2-bookworm
-WORKDIR /app
+FROM golang:1.26-alpine AS builder
 
-RUN apt-get update && \
-    apt-get install -y git docker.io curl && \
-    rm -rf /var/lib/apt/lists/*
-
-RUN curl -sSL https://railpack.com/install.sh | RAILPACK_VERSION=0.23.0 sh -s -- --yes
+WORKDIR /src
 
 COPY go.mod go.sum ./
 RUN go mod download
-COPY . .
-RUN GOOS=linux GOARCH=amd64 go build -ldflags='-s' -o=./bin/linux_amd64/api ./cmd/api
 
-EXPOSE 8080
+COPY . .
+RUN CGO_ENABLED=0 go build -ldflags='-w -s' -o=/usr/bin/appa ./cmd/api
+
+FROM alpine
+
+RUN apk update && \
+    apk add --no-cache git docker curl tar
+
+RUN curl -sSL https://railpack.com/install.sh | RAILPACK_VERSION=0.23.0 sh -s -- -y
+
+COPY --from=builder /usr/bin/appa /usr/bin/appa

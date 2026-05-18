@@ -42,7 +42,7 @@ services:
       context: .
       dockerfile: Dockerfile
     command:
-      - "./bin/linux_amd64/api"
+      - "/usr/bin/appa"
       - "-port=$PORT"
       - "-env=$ENV"
       - "-db-dsn=$APPA_DB_DSN"
