@@ -1,82 +1,160 @@
-# appa
+# Appa
 
-**Appa** is a minimal, zero-config deployment platform that handles building, orchestration, and routing with ease.
+**A minimal, zero-config deployment platform that builds, runs, and routes your apps. No Dockerfile required.**
 
-![alt text](main.png)
+Named after Aang's flying bison, because why not. Appa carries your code from source to live URL with as little friction as possible.
 
-### [What this project is about]
+![Appa screenshot](main.png)
 
-I figured I'd try my hands on the Brimble take-home task and try my chops on Go for infra stuff. Turns out, I became a little more excited about software lately doing this. It's named Appa, after Aang's flying bison, simply because I just wanted to... and I somehow like to associate stuff I do with my fav cartoon show growing up. Anyway, without further ado, enter Appa: A minimal deployment platform.
+---
 
-### [How it works]
+## How It Works
 
 ```text
 User/UI  ──►  Go Backend  ──►  Railpack (Build)  ──►  Docker (Run)  ──►  Caddy (Route)
-   ▲              │                 │                   │                 │
-   └──────────────┴─────────────────┴───────────────────┴─────────────────┘
-                          (Live Logs via WebSockets)
+   ▲              │  ▲              │                    │
+   │              │  │              └────── BuildKit ────┘
+   │              │  │
+   │              │  └────────── PostgreSQL (Data & Logs)
+   │              │
+   └──────────────┴── Live Logs via WebSockets · Auth via Bearer Tokens
 ```
 
-### [The Tech]
+Point Appa at a Git URL or a ZIP file. It detects your stack, builds an optimized container image using Railpack and BuildKit, runs it via the Docker SDK, and provisions a `<id>.localhost` subdomain through Caddy's admin API, all without you touching a config file.
 
-The stack is pretty lean. I used **Go** for the backend because I wanted that raw performance and concurrency for handling the pipeline.
+---
 
-- **Builder**: It uses **Railpack** to handle zero-config builds. It basically looks at your code, figures out what it is, and builds a container for it.
-- **Orchestration**: I'm using the **Moby** (Docker) SDK to manage the container lifecycle.
-- **Routing**: I'm hitting the **Caddy Admin API** directly to dynamically provision routes. Every deployment gets its own `<id>.localhost` subdomain without me having to touch a Caddyfile.
-- **Persistence & Logs**: **SQLite** handles the data, and I'm using **WebSockets** to stream build and runtime logs live to the UI.
-- **Frontend**: A standard **React** setup with **TanStack** (Router & Query) for state and navigation.
+## The Stack
 
-### [Wait, how does it build?]
+| Concern | Tool | Why |
+|---|---|---|
+| Backend | [Go](https://go.dev/) | Concurrency for the build pipeline -- low overhead |
+| Build | [Railpack](https://railpack.com/) + [BuildKit](https://docs.docker.com/build/buildkit/) | Zero-config, language-agnostic image builds |
+| Orchestration | Moby (Docker) SDK | Full container lifecycle management |
+| Routing | [Caddy](https://caddyserver.com/) Admin API | Dynamic subdomain provisioning at runtime |
+| Persistence | [PostgreSQL](https://www.postgresql.org/) | Deployments, users, tokens, and logs |
+| Realtime | [WebSockets](https://pkg.go.dev/github.com/gorilla/websocket) | Live build and runtime log streaming |
+| Frontend | React + TanStack Router/Query | Lightweight, fast client |
 
-Thanks to **Railpack**, Appa is language-agnostic. It detects your environment and builds an optimized image for:
-- **Node.js** (npm, yarn, pnpm)
-- **Python** (pip, poetry)
-- **Go**
-- **Rust**
-- **Static Sites** (HTML/CSS/JS)
-- ...and more, all without having a `Dockerfile`.
+---
 
-### [What it can do]
+## Supported Runtimes
 
-- [x] **Zero-Config Builds**: Point it at a repo or upload a folder and it just works.
-- [x] **Live Logging**: Watch your build and runtime logs stream in real-time.
-- [x] **Dynamic Subdomains**: Every app gets its own URL automatically.
-- [x] **Self-Healing Routes**: If the server restarts, Appa syncs back up with Caddy to restore all your routes.
-- [x] **Environment Variables**: Easily inject secrets and config into your deployments.
+Appa is language-agnostic. Railpack inspects your code and builds an optimized image for:
 
-### [API Overview]
+- Node.js (npm, yarn, pnpm)
+- Python (pip, poetry)
+- Go
+- Rust
+- Static sites (HTML/CSS/JS)
 
-If you want to poke at it via `curl` or Postman:
+No `Dockerfile` needed in any of these cases.
 
-- `GET    /deployments` - List all deployments.
-- `POST   /deployments` - Trigger a Git-based deployment.
-- `POST   /deployments/upload` - Deploy via a ZIP file upload.
-- `PATCH  /deployments/{id}` - Cancel an active deployment or stop a container.
-- `GET    /deployments/{id}/logs` - WebSocket endpoint for live log streaming.
+---
 
-### [Getting it running]
+## Features
 
-**Prerequisites:**
-- **Docker** & **Docker Compose**
-- A terminal and some curiosity.
+- **Zero-config builds** -- deploy from a Git URL or ZIP upload.
+- **Live log streaming** -- watch build and runtime logs in real time over WebSockets.
+- **Dynamic subdomains** -- every deployment gets its own `<id>.localhost` URL automatically.
+- **Self-healing routes** -- on restart, Appa resyncs with Caddy and restores all active routes.
+- **Environment variables** -- inject secrets and config per deployment.
+- **Auth** -- register, activate via email token, authenticate with bearer tokens.
+- **Deployment management** -- list, filter by status, paginate, cancel, and stop deployments.
+
+---
+
+## Getting Started
+
+**Prerequisites:** Docker and Docker Compose.
 
 ```bash
 git clone https://github.com/theolujay/appa.git
 cd appa
+cp .env.example .env
 docker compose up --build
 ```
-- Open localhost in your browser
 
-### [Ideas for later]
+Open [http://localhost](http://localhost) in your browser.
 
-- **Build Caching**: Mounting a persistent volume for Railpack's cache so rebuilds don't have to start from scratch every time.
-- **Resource Limits**: Using the Docker API to set strict CPU and memory limits per container to prevent one app from hogging everything.
-- **Rollbacks**: The ability to instantly switch back to a previous successful image tag if a new deployment goes south.
-- **Scaling**: Adding support for horizontal scaling -- deploying multiple instances of the same app and load balancing between them.
-- **Improved reliability**: Handle edge cases and possible faults to minimize failures.
-- **More buttons?**: I dunno, buttons are cool. Not too many, though. Just a few more "controls", I guess.
+`docker compose up` starts five services:
 
-### [Stuff I learned along the way]
+| Service | Role |
+|---|---|
+| `db` | PostgreSQL |
+| `api` | Go backend |
+| `buildkit` | BuildKit daemon |
+| `caddy` | Reverse proxy and router |
+| `ui` | Vite dev server |
 
-It took me way longer than I anticipated to build this, but we're here now. Had some bad advice along the way; AI be misleading me with old info (like leading me to stuff from docker/docker pkg rather than moby/moby)... can't complain, though, as it helped with the UI and allowing me focus more on the backend & infra stuff. Along the way building, some interesting ideas came to mind; I had to first lock in on the core stuff, so maybe I'll explore the ideas later on. Ultimately, I think my biggest realization doing this was the complexity that goes into building IaaS and PaaS systems. Had these "Oh, now I see" moments.
+---
+
+## API
+
+All routes are prefixed with `/v1/` and proxied through Caddy.
+
+**Public**
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/healthcheck` | Health check with env and version info |
+| `POST` | `/v1/users` | Register a new user (sends activation email) |
+| `PUT` | `/v1/users/activated` | Activate account via email token |
+| `POST` | `/v1/tokens/authentication` | Log in, receive a bearer token |
+
+**Authenticated**
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/deployments` | List deployments — supports `?status=`, `?page=`, `?sort=` |
+| `POST` | `/v1/deployments` | Trigger a Git-based deployment |
+| `POST` | `/v1/deployments/upload` | Deploy via ZIP file (multipart) |
+| `PATCH` | `/v1/deployments/{id}` | Cancel an active deployment or stop a container |
+| `GET` | `/v1/deployments/{id}/logs` | WebSocket endpoint for live log streaming |
+
+---
+
+## Roadmap
+
+These are the next things we are working toward, roughly in priority order:
+
+- **Build caching** -- mount a persistent volume for Railpack's cache so rebuilds skip redundant work.
+- **Resource limits** -- use the Docker API to enforce CPU and memory caps per container.
+- **Rollbacks** -- switch instantly to a previous successful image tag when a deployment goes wrong.
+- **Horizontal scaling** -- deploy multiple instances of the same app and load balance across them.
+- **Reliability hardening** -- close edge cases in the pipeline to reduce silent failures.
+
+---
+
+## Project Structure
+
+```text
+.
+├── cmd/api/           # HTTP handlers, routing, middleware
+├── internal/
+│   ├── data/          # Database models and queries
+│   ├── hub/           # WebSocket broadcast hub
+│   ├── mailer/        # Email templating and delivery
+│   ├── pipeline/      # Build → run → route orchestration
+│   │   ├── pipeline.go    # Orchestrator
+│   │   ├── builder.go     # Railpack builds
+│   │   ├── runner.go      # Docker container lifecycle
+│   │   └── router.go      # Caddy admin API integration
+│   ├── validator/     # Input validation helpers
+│   └── vcs/           # Build version injection
+├── migrations/        # SQL migration files
+├── scripts/           # Utility scripts (db-init, etc.)
+├── ui/                # React frontend (TanStack Router + Query)
+├── Caddyfile
+├── Dockerfile
+├── Makefile           # Dev workflow: run, build, migrate, audit
+├── compose.yml
+├── go.mod
+└── main.png
+```
+
+---
+
+## Contributing
+
+The project is actively being developed. If you'd like to work on this, start with `cmd/api/main.go` to understand how the server bootstraps, then follow a request through `routes.go` → the relevant handler → `internal/pipeline/` to see how a deployment is triggered end to end. `internal/hub/hub.go` is the WebSocket broadcast layer worth understanding early if you are touching anything log-related.
