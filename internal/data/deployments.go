@@ -268,7 +268,7 @@ func (dm *DeploymentModel) UpdateAndGet(id int64, u DeploymentUpdate) (*Deployme
 
 	var d Deployment
 
-	err := dm.DB.QueryRowContext(ctx, query, id).Scan(
+	err := dm.DB.QueryRowContext(ctx, query, args...).Scan(
 		&d.ID,
 		&d.UserID,
 		&d.Source,

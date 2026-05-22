@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/theolujay/appa/internal/data"
@@ -53,10 +54,13 @@ func (p *Pipeline) Run(d *data.Deployment) {
 		p.mu.Unlock()
 	}()
 
-	err := p.Prepare(ctx, d.ID, d.Source)
+	buildDir, err := p.Prepare(ctx, d.ID, d.Source)
+	if buildDir != "" {
+		defer os.RemoveAll(buildDir)
+	}
 	if err == nil {
 		phase = phaseBuild
-		imageTag, err = p.Build(ctx, d.ID)
+		imageTag, err = p.Build(ctx, d.ID, buildDir)
 		if err == nil {
 			phase = phaseDeploy
 			address, err = p.StartContainer(ctx, d.ID, imageTag)
