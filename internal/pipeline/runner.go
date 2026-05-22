@@ -107,7 +107,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 	address := net.JoinHostPort(containerName, strings.Split(containerPortStr, "/")[0])
 
 	msg := fmt.Sprintf("waiting for container %s to respond...", address)
-	logID, _ := p.deployment.AppendLog(id, "deploy", msg)
+	logID, _ := p.deployment.AppendLog(id, phaseDeploy, msg)
 	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
 
 	healthy := false
@@ -123,12 +123,12 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 
 	if !healthy {
 		msg := "container failed to start"
-		logID, _ := p.deployment.AppendLog(id, "deploy", msg)
+		logID, _ := p.deployment.AppendLog(id, phaseDeploy, msg)
 		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
 		return "", fmt.Errorf("container did not respond on port %d", hostPort)
 	} else {
 		msg := "container is healthy and accepting connections"
-		logID, _ := p.deployment.AppendLog(id, "deploy", msg)
+		logID, _ := p.deployment.AppendLog(id, phaseDeploy, msg)
 		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
 	}
 
@@ -141,7 +141,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 			Timestamps: false,
 		})
 		if err != nil {
-			p.deployment.AppendLog(id, "deploy", fmt.Sprintf("failed to attach container logs: %v", err))
+			p.deployment.AppendLog(id, phaseDeploy, fmt.Sprintf("failed to attach container logs: %v", err))
 			return
 		}
 		defer logReader.Close()
@@ -158,7 +158,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 			pw.Close()
 		}()
 
-		p.streamLogs(id, "deploy", pr)
+		p.streamLogs(id, phaseDeploy, pr)
 	}()
 
 	return address, nil
@@ -197,7 +197,7 @@ func (p *Pipeline) StopContainer(id int64) error {
 	)
 
 	msg := "deployment stopped by user"
-	logID, _ := p.deployment.AppendLog(id, "system", msg)
+	logID, _ := p.deployment.AppendLog(id, phaseCancel, msg)
 	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
 	p.hub.PublishStatus(id, status, "")
 
