@@ -225,9 +225,12 @@ func (dm *DeploymentModel) AppendLog(id int64, phase, line string) (int64, error
 	return logID, nil
 }
 
-func (dm *DeploymentModel) Update(id int64, u DeploymentUpdate) error {
+// UpdateAndGet updates a deployment and returns the full row. It uses a
+// RETURNING clause so callers avoid a separate Get round-trip.
+func (dm *DeploymentModel) UpdateAndGet(id int64, u DeploymentUpdate) (*Deployment, error) {
+
 	query := "UPDATE deployments SET "
-	var args []interface{}
+	var args []any
 	var fields []string
 
 	if u.Status != nil {
@@ -252,13 +255,31 @@ func (dm *DeploymentModel) Update(id int64, u DeploymentUpdate) error {
 	}
 
 	if len(fields) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	query += strings.Join(fields, ", ")
 	query += fmt.Sprintf(" WHERE id = $%d", len(args)+1)
+	query += " RETURNING id, user_id, source, status, image_tag, address, env_vars, url, created_at"
 	args = append(args, id)
 
-	_, err := dm.DB.Exec(query, args...)
-	return err
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	var d Deployment
+
+	err := dm.DB.QueryRowContext(ctx, query, args...).Scan(
+		&d.ID,
+		&d.UserID,
+		&d.Source,
+		&d.Status,
+		&d.ImageTag,
+		&d.Address,
+		&d.EnvVars,
+		&d.URL,
+		&d.CreatedAt,
+	)
+
+	return &d, err
+
 }

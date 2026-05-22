@@ -16,11 +16,12 @@ import (
 )
 
 // StartContainer starts a container from the given image tag and streams its logs
-// to the hub and he database. It returns the host:port address of the
-// running contianer so the router can configure Caddy to point at it.
+// to the hub and the database. It returns the host:port address of the
+// running container so the router can configure Caddy to point at it.
 func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string) (string, error) {
 	status := data.DEPLOYING
-	if err := p.deployment.Update(id, data.DeploymentUpdate{Status: &status}); err != nil {
+	deployment, err := p.deployment.UpdateAndGet(id, data.DeploymentUpdate{Status: &status})
+	if err != nil {
 		return "", fmt.Errorf("failed to update status: %w", err)
 	}
 	p.hub.PublishStatus(id, status, "")
@@ -66,8 +67,6 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 		}
 	}
 
-	// prepare env vars
-	deployment, _ := p.deployment.Get(id)
 	var env []string
 	if deployment.EnvVars != nil && *deployment.EnvVars != "" {
 		lines := strings.Split(*deployment.EnvVars, "\n")
@@ -107,7 +106,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 	address := net.JoinHostPort(containerName, strings.Split(containerPortStr, "/")[0])
 
 	msg := fmt.Sprintf("waiting for container %s to respond...", address)
-	logID, _ := p.deployment.AppendLog(id, "deploy", msg)
+	logID, _ := p.deployment.AppendLog(id, phaseDeploy, msg)
 	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
 
 	healthy := false
@@ -123,12 +122,12 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 
 	if !healthy {
 		msg := "container failed to start"
-		logID, _ := p.deployment.AppendLog(id, "deploy", msg)
+		logID, _ := p.deployment.AppendLog(id, phaseDeploy, msg)
 		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
 		return "", fmt.Errorf("container did not respond on port %d", hostPort)
 	} else {
 		msg := "container is healthy and accepting connections"
-		logID, _ := p.deployment.AppendLog(id, "deploy", msg)
+		logID, _ := p.deployment.AppendLog(id, phaseDeploy, msg)
 		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
 	}
 
@@ -141,7 +140,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 			Timestamps: false,
 		})
 		if err != nil {
-			p.deployment.AppendLog(id, "deploy", fmt.Sprintf("failed to attach container logs: %v", err))
+			p.deployment.AppendLog(id, phaseDeploy, fmt.Sprintf("failed to attach container logs: %v", err))
 			return
 		}
 		defer logReader.Close()
@@ -158,12 +157,14 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 			pw.Close()
 		}()
 
-		p.streamLogs(id, "deploy", pr)
+		p.streamLogs(id, phaseDeploy, pr)
 	}()
 
 	return address, nil
 }
 
+// StopContainer stops the container, removes the Caddy route, and
+// updates the deployment status to STOPPED.
 func (p *Pipeline) StopContainer(id int64) error {
 	URL := ""
 	imageTag := ""
@@ -187,7 +188,7 @@ func (p *Pipeline) StopContainer(id int64) error {
 		fmt.Printf("failed to remove caddy route for %d: %v\n", id, err)
 	}
 
-	p.deployment.Update(
+	_, err = p.deployment.UpdateAndGet(
 		id,
 		data.DeploymentUpdate{
 			URL:      &URL,
@@ -195,9 +196,12 @@ func (p *Pipeline) StopContainer(id int64) error {
 			ImageTag: &imageTag,
 		},
 	)
+	if err != nil {
+		return err
+	}
 
 	msg := "deployment stopped by user"
-	logID, _ := p.deployment.AppendLog(id, "system", msg)
+	logID, _ := p.deployment.AppendLog(id, phaseCancel, msg)
 	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
 	p.hub.PublishStatus(id, status, "")
 

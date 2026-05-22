@@ -2,11 +2,20 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/theolujay/appa/internal/data"
 	"github.com/theolujay/appa/internal/hub"
+)
+
+const (
+	phaseBuild   = "build"
+	phaseDeploy  = "deploy"
+	phaseRouting = "routing"
+	phaseCancel  = "cancel"
 )
 
 type Pipeline struct {
@@ -28,8 +37,13 @@ func New(dm *data.DeploymentModel, h *hub.Hub, r *Router) *Pipeline {
 
 func (p *Pipeline) Run(d *data.Deployment) {
 	status := ""
+	var imageTag string
+	var address string
+	var phase string
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
 	// Register the task so it can be cancelled via the API
 	p.mu.Lock()
 	p.activeTasks[d.ID] = cancel
@@ -40,39 +54,31 @@ func (p *Pipeline) Run(d *data.Deployment) {
 		p.mu.Unlock()
 	}()
 
-	imageTag, err := p.Build(ctx, d.ID, d.Source)
-	if err != nil {
-		status = data.FAILED
-		if ctx.Err() == context.Canceled {
-			status = data.CANCELED
+	buildDir, err := p.Prepare(ctx, d.ID, d.Source)
+	if buildDir != "" {
+		defer os.RemoveAll(buildDir)
+	}
+	if err == nil {
+		phase = phaseBuild
+		imageTag, err = p.Build(ctx, d.ID, buildDir)
+		if err == nil {
+			phase = phaseDeploy
+			address, err = p.StartContainer(ctx, d.ID, imageTag)
+			if err == nil {
+				phase = phaseRouting
+				err = p.router.AddRoute(d.ID, address)
+			}
 		}
-		p.deployment.Update(d.ID, data.DeploymentUpdate{Status: &status})
-		msg := fmt.Sprintf("build failed: %v", err)
-		logID, _ := p.deployment.AppendLog(d.ID, "build", msg)
-		p.hub.PublishLog(d.ID, hub.LogMessage{ID: logID, Line: msg})
-		p.hub.PublishStatus(d.ID, status, "")
-		return
 	}
 
-	address, err := p.StartContainer(ctx, d.ID, imageTag)
 	if err != nil {
 		status = data.FAILED
-		if ctx.Err() == context.Canceled {
+		if errors.Is(ctx.Err(), context.Canceled) {
 			status = data.CANCELED
 		}
-		p.deployment.Update(d.ID, data.DeploymentUpdate{Status: &status})
-		msg := fmt.Sprintf("deployment failed: %v", err)
-		logID, _ := p.deployment.AppendLog(d.ID, "deploy", msg)
-		p.hub.PublishLog(d.ID, hub.LogMessage{ID: logID, Line: msg})
-		p.hub.PublishStatus(d.ID, status, "")
-		return
-	}
-
-	if err := p.router.AddRoute(d.ID, address); err != nil {
-		status = data.FAILED
-		p.deployment.Update(d.ID, data.DeploymentUpdate{Status: &status})
-		msg := fmt.Sprintf("routing failed: %v", err)
-		logID, _ := p.deployment.AppendLog(d.ID, "deploy", msg)
+		p.deployment.UpdateAndGet(d.ID, data.DeploymentUpdate{Status: &status})
+		msg := fmt.Sprintf("%s failed: %v", phase, err)
+		logID, _ := p.deployment.AppendLog(d.ID, phase, msg)
 		p.hub.PublishLog(d.ID, hub.LogMessage{ID: logID, Line: msg})
 		p.hub.PublishStatus(d.ID, status, "")
 		return
@@ -81,14 +87,15 @@ func (p *Pipeline) Run(d *data.Deployment) {
 	url := fmt.Sprintf("http://%d.localhost", d.ID)
 
 	status = data.RUNNING
-	p.deployment.Update(d.ID, data.DeploymentUpdate{
+	// TODO: handle this error
+	_, _ = p.deployment.UpdateAndGet(d.ID, data.DeploymentUpdate{
 		Status:  &status,
 		URL:     &url,
 		Address: &address,
 	})
 
 	msg := fmt.Sprintf("deployment live at %s", url)
-	logID, _ := p.deployment.AppendLog(d.ID, "deploy", msg)
+	logID, _ := p.deployment.AppendLog(d.ID, phaseDeploy, msg)
 	p.hub.PublishLog(d.ID, hub.LogMessage{ID: logID, Line: msg})
 	p.hub.PublishStatus(d.ID, status, url)
 }
@@ -104,7 +111,7 @@ func (p *Pipeline) Cancel(deploymentID int64) error {
 	cancel()
 
 	msg := "cancellation requested"
-	logID, _ := p.deployment.AppendLog(deploymentID, "system", msg)
+	logID, _ := p.deployment.AppendLog(deploymentID, phaseCancel, msg)
 	p.hub.PublishLog(deploymentID, hub.LogMessage{ID: logID, Line: msg})
 
 	return nil
