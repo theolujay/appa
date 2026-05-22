@@ -225,7 +225,8 @@ func (dm *DeploymentModel) AppendLog(id int64, phase, line string) (int64, error
 	return logID, nil
 }
 
-
+// UpdateAndGet updates a deployment and returns the full row. It uses a
+// RETURNING clause so callers avoid a separate Get round-trip.
 func (dm *DeploymentModel) UpdateAndGet(id int64, u DeploymentUpdate) (*Deployment, error) {
 
 	query := "UPDATE deployments SET "

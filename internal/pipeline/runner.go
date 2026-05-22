@@ -16,8 +16,8 @@ import (
 )
 
 // StartContainer starts a container from the given image tag and streams its logs
-// to the hub and he database. It returns the host:port address of the
-// running contianer so the router can configure Caddy to point at it.
+// to the hub and the database. It returns the host:port address of the
+// running container so the router can configure Caddy to point at it.
 func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string) (string, error) {
 	status := data.DEPLOYING
 	deployment, err := p.deployment.UpdateAndGet(id, data.DeploymentUpdate{Status: &status})
@@ -163,6 +163,8 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 	return address, nil
 }
 
+// StopContainer stops the container, removes the Caddy route, and
+// updates the deployment status to STOPPED.
 func (p *Pipeline) StopContainer(id int64) error {
 	URL := ""
 	imageTag := ""
