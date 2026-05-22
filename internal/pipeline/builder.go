@@ -23,15 +23,9 @@ import (
 func (p *Pipeline) Prepare(ctx context.Context, id int64, source string) error {
 	status := data.BUILDING
 
-	// TODO: update this to return deployment, so we don't make another
-	// round trip for it
-	err := p.deployment.Update(id, data.DeploymentUpdate{Status: &status})
+	deployment, err := p.deployment.UpdateAndGet(id, data.DeploymentUpdate{Status: &status})
 	if err != nil {
 		return fmt.Errorf("failed to update status: %w", err)
-	}
-	deployment, err := p.deployment.Get(id)
-	if err != nil {
-		return err
 	}
 
 	p.hub.PublishStatus(id, status, "")

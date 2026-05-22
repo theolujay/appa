@@ -72,7 +72,7 @@ func (p *Pipeline) Run(d *data.Deployment) {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			status = data.CANCELED
 		}
-		p.deployment.Update(d.ID, data.DeploymentUpdate{Status: &status})
+		p.deployment.UpdateAndGet(d.ID, data.DeploymentUpdate{Status: &status})
 		msg := fmt.Sprintf("%s failed: %v", phase, err)
 		logID, _ := p.deployment.AppendLog(d.ID, phase, msg)
 		p.hub.PublishLog(d.ID, hub.LogMessage{ID: logID, Line: msg})
@@ -83,7 +83,8 @@ func (p *Pipeline) Run(d *data.Deployment) {
 	url := fmt.Sprintf("http://%d.localhost", d.ID)
 
 	status = data.RUNNING
-	p.deployment.Update(d.ID, data.DeploymentUpdate{
+	// TODO: handle this error
+	_, _ = p.deployment.UpdateAndGet(d.ID, data.DeploymentUpdate{
 		Status:  &status,
 		URL:     &url,
 		Address: &address,
