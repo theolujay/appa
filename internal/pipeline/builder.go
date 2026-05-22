@@ -22,57 +22,28 @@ import (
 // On failure it returns an error so the pipeline can mark the deployment
 // as failed.
 func (p *Pipeline) Build(ctx context.Context, id int64, source string) (string, error) {
-	status := "building"
-	if err := p.deployment.Update(id, data.DeploymentUpdate{Status: &status}); err != nil {
+	status := data.BUILDING
+
+	err := p.deployment.Update(id, data.DeploymentUpdate{Status: &status})
+	if err != nil {
 		return "", fmt.Errorf("failed to update status: %w", err)
 	}
 	p.hub.PublishStatus(id, status, "")
+
 	imageTag := fmt.Sprintf("appa-%s", truncStr(id))
-
-	// Check if source is a local directory (for uploads) or a git URL
-	isLocal := false
-	if info, err := os.Stat(source); err == nil && info.IsDir() {
-		isLocal = true
-	}
-
-	var buildDir string
-	if isLocal {
-		buildDir = source
-		logID, _ := p.deployment.AppendLog(id, "build", "using uploaded project files")
-		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: "using uploaded project files"})
-	} else {
-		// Create a temporary directory to clone the source repository into,
-		// then clean it up afterwards
-		tmpDir, err := os.MkdirTemp("", "appa-build-*")
-		if err != nil {
-			return "", fmt.Errorf("failed to create temp dir: %w", err)
-		}
-		defer os.RemoveAll(tmpDir)
-		buildDir = tmpDir
-
-		// Clone the repository into the temp directory, and stream it in logs
-		msg := fmt.Sprintf("cloning %s", source)
-		logID, _ := p.deployment.AppendLog(id, "build", msg)
-		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
-
-		cloneCmd := exec.CommandContext(ctx, "git", "clone", "--quiet", "--depth=1", source, buildDir)
-		cloneOut, err := cloneCmd.CombinedOutput()
-		if err != nil {
-			return "", fmt.Errorf("git clone failed: %s", string(cloneOut))
-		}
-		logID, _ = p.deployment.AppendLog(id, "build", "clone complete")
-		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: "clone complete"})
-	}
 
 	ctxWT, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 
 	deployment, _ := p.deployment.Get(id)
 
-	cmd := exec.CommandContext(ctxWT, "railpack", "build", "--name", imageTag, buildDir)
+	buildDir, err := p.cloneRepo(ctx, source, id)
+	if err != nil {
+		return "", err
+	}
 
-	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, "RAILPACK_CACHE_DIR=/tmp/railpack")
+	// TODO: replace with `railpack prepare` and use Railpack Frontend with BuildKit
+	cmd := exec.CommandContext(ctxWT, "railpack", "build", "--name", imageTag, buildDir)
 
 	if deployment.EnvVars != nil && *deployment.EnvVars != "" {
 		envLines := strings.Split(*deployment.EnvVars, "\n")
@@ -133,4 +104,43 @@ func (p *Pipeline) streamLogs(id int64, phase string, r io.Reader) {
 
 		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: line})
 	}
+}
+
+func (p *Pipeline) cloneRepo(ctx context.Context, source string, id int64) (string, error) {
+	// Check if source is a local directory (for uploads) or a git URL
+	isLocal := false
+	if info, err := os.Stat(source); err == nil && info.IsDir() {
+		isLocal = true
+	}
+
+	var buildDir string
+	if isLocal {
+		buildDir = source
+		logID, _ := p.deployment.AppendLog(id, "build", "using uploaded project files")
+		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: "using uploaded project files"})
+	} else {
+		// Create a temporary directory to clone the source repository into,
+		// then clean it up afterwards
+		tmpDir, err := os.MkdirTemp("", "appa-build-*")
+		if err != nil {
+			return "", fmt.Errorf("failed to create temp dir: %w", err)
+		}
+		defer os.RemoveAll(tmpDir)
+		buildDir = tmpDir
+
+		// Clone the repository into the temp directory, and stream it in logs
+		msg := fmt.Sprintf("cloning %s", source)
+		logID, _ := p.deployment.AppendLog(id, "build", msg)
+		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
+
+		cloneCmd := exec.CommandContext(ctx, "git", "clone", "--quiet", "--depth=1", source, buildDir)
+		cloneOut, err := cloneCmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("git clone failed: %s", string(cloneOut))
+		}
+		logID, _ = p.deployment.AppendLog(id, "build", "clone complete")
+		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: "clone complete"})
+	}
+
+	return buildDir, nil
 }
