@@ -1,3 +1,8 @@
+// Package pipeline orchestrates the end-to-end deployment lifecycle:
+// source-code preparation, container image building, container startup,
+// and reverse-proxy route registration. It streams each phase's logs
+// to the WebSocket hub and persists them to the database. Tasks can be
+// cancelled via context cancellation, which triggers cleanup.
 package pipeline
 
 import (
@@ -69,9 +74,7 @@ func (p *Pipeline) Run(d *data.Deployment) {
 				err = p.router.AddRoute(d.ID, address)
 			}
 		}
-	}
-
-	if err != nil {
+	} else {
 		status = data.FAILED
 		if errors.Is(ctx.Err(), context.Canceled) {
 			status = data.CANCELED

@@ -1,3 +1,7 @@
+// Package hub implements the WebSocket broadcast hub that fans out
+// deployment log events to all connected clients for a given deployment.
+// It uses the single-goroutine ownership pattern to avoid mutex contention —
+// all state mutations go through the hub's run loop via channels.
 package hub
 
 type MessageType string

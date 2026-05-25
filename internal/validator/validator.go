@@ -1,3 +1,7 @@
+// Package validator provides a simple, map-based validation toolkit.
+// It collects named errors in a Validator struct and offers helpers
+// for common checks (email format, permitted values, uniqueness) as
+// well as a generic PermittedValue function for any comparable type.
 package validator
 
 import (

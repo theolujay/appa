@@ -1,3 +1,7 @@
+// Package data provides the database access layer for the application.
+// It defines models for deployments, users, and tokens, along with
+// CRUD operations, validation helpers, and pagination/filtering support.
+// All queries use context-based timeouts to prevent resource leaks.
 package data
 
 import (

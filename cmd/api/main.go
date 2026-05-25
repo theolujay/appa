@@ -1,3 +1,8 @@
+// Package main implements the HTTP API server for the deployment
+// platform. It wires together the database, mailer, WebSocket hub,
+// and deployment pipeline, exposes REST endpoints for managing users,
+// tokens, and deployments, and handles graceful shutdown on SIGINT
+// / SIGTERM.
 package main
 
 import (

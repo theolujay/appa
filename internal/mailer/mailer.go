@@ -1,3 +1,8 @@
+// Package mailer sends transactional emails via SMTP.
+// It embeds text/html templates at build time and renders them with
+// Go's text/template and html/template engines, delivering the result
+// as a multipart message. Delivery retries up to three times with a
+// backoff delay between attempts.
 package mailer
 
 import (
