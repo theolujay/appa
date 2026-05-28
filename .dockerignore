@@ -1,8 +1,53 @@
-./ui
+# --- Build artifacts ---
+bin/
+appa
+dist/
+*.exe
+*.test
+*.prof
+
+# --- Dependencies ---
+node_modules/
+ui/node_modules/
+
+# --- Local configuration ---
+.env
+.env.local
+.env.example
+.envrc
+
+# --- Databases ---
 *.db
 *.db-wal
 *.db-shm
+
+# --- Documentation and notes ---
+ARCHITECTURE.md
+README.md
+notes.md
+main.png
+*.png
+*.jpg
+*.jpeg
+*.svg
+
+# --- Source control ---
 .git
+.gitignore
+.dockerignore
+.geminiignore
+
+# --- Temporary files ---
 tmp/
-./bin
-.envrc
+.DS_Store
+
+# --- Project-specific exclusions ---
+# The UI is handled by its own Dockerfile in its own directory
+ui/
+
+# Non-Go directories not needed for the API binary build
+Makefile
+scripts/
+docker/
+migrations/
+ansible/
