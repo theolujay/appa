@@ -75,9 +75,11 @@ func (app *application) serve() error {
 			shutdownError <- err
 		}
 
-		// Log a message to say that we're waiting for any background
-		// goroutines to complete their tasks
 		app.logger.Info("completing background tasks", "addr", srv.Addr)
+
+		// Stop the hub to close any active connections and signal its
+		// background goroutines to terminate before waiting for them.
+		app.hub.Stop()
 
 		// Call Wait() to block until the WaitGroup counter is zero --
 		// essentially blocking until the background goroutines have
