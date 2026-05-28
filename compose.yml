@@ -83,7 +83,7 @@ services:
       - railpack_cache:/tmp/railpack
 
   buildkit:
-    image: moby/buildkit:latest
+    image: moby/buildkit:v0.29.0
     container_name: buildkit
     networks:
       - "appa_net"
@@ -95,7 +95,6 @@ services:
     image: caddy:2.11.2-alpine
     ports:
       - "80:80"
-      - "2019:2019"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data

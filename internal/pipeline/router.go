@@ -11,11 +11,18 @@ import (
 	"github.com/theolujay/appa/internal/data"
 )
 
+// Router manages HTTP routes in a Caddy instance for Appa deployments.
+//
+// It communicates with the Caddy admin API to add, remove and restore
+// per-deployment reverse-proxy routes.
 type Router struct {
 	client  *http.Client
 	baseURL string
 }
 
+// NewRouter constructs a Router that talks to the Caddy admin API at the given
+// address. `caddyAddr` should be the host:port of the Caddy admin endpoint
+// (for example, "localhost:2019").
 func NewRouter(caddyAddr string) *Router {
 	return &Router{
 		client:  &http.Client{Timeout: 10 * time.Second},
@@ -54,6 +61,12 @@ type caddyUpstream struct {
 	Dial string `json:"dial,omitempty"`
 }
 
+// AddRoute creates a reverse-proxy route in Caddy for the deployment identified
+// by `id`, proxying traffic to `address` (host:port). If a route for the same
+// deployment already exists it will be removed first.
+//
+// The function returns an error if the Caddy admin API cannot be reached or
+// if Caddy rejects the configuration.
 func (r *Router) AddRoute(id int64, address string) error {
 	routeID := fmt.Sprintf("deployment-%d", id)
 
@@ -106,6 +119,10 @@ func (r *Router) AddRoute(id int64, address string) error {
 	return nil
 }
 
+// RemoveRoute deletes the route associated with the given deployment `id`
+// from the Caddy instance. It performs an HTTP DELETE against the Caddy
+// admin API and returns any error encountered while creating or sending the
+// request.
 func (r *Router) RemoveRoute(id int64) error {
 	routeID := fmt.Sprintf("deployment-%d", id)
 	url := fmt.Sprintf("%s/id/%s", r.baseURL, routeID)
@@ -124,6 +141,11 @@ func (r *Router) RemoveRoute(id int64) error {
 	return nil
 }
 
+// RestoreRoutes synchronizes Caddy routes with currently running deployments
+// known to the provided `data.DeploymentModel`. It queries the model for
+// active deployments and calls `AddRoute` for each running deployment that
+// exposes an address. Errors during individual route restores are logged but
+// do not abort the whole synchronization process.
 func (r *Router) RestoreRoutes(dm *data.DeploymentModel) error {
 	filters := data.Filters{
 		Page:         1,

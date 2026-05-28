@@ -89,7 +89,7 @@ func (p *Pipeline) Build(ctx context.Context, id int64, buildDir string) (string
 		fmt.Sprintf("dockerfile=%s", buildDir),
 		"--frontend=gateway.v0",
 		"--opt",
-		"source=ghcr.io/railwayapp/railpack-frontend",
+		"source=ghcr.io/railwayapp/railpack-frontend:v0.23.0",
 		"--output",
 		fmt.Sprintf("type=docker,name=%s", imageTag),
 	)
