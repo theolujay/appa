@@ -4,25 +4,9 @@
 
 Named after Aang's flying bison. Appa's your buddy that carries your code from source to live URL with as little friction as possible. Run your own Railway-like platform on a fixed-price VPS instance.
 
-<!-- ![Appa screenshot](main.png) -->
+For the full system design, design decisions, and roadmap, see [ARCHITECTURE.md](./ARCHITECTURE.md)
 
----
-
-## How It Works
-
-```plaintext
-   [ 1. PROVISION ]          [ 2. INSTALL ]          [ 3. DEPLOY ]
-   Get any Ubuntu VPS   ──▶   appa.dev/install  ──▶   Paste your Git URL
-   (DigitalOcean, etc.)      (One-command setup)      (Zero-config build)
-
-           │                        │                       │
-           ▼                        ▼                       ▼
-
-   [  VPS IS READY  ]       [ PLATFORM LIVE ]       [  APP IS LIVE  ]
-   Fixed monthly cost       TLS & DNS managed       app.yourdomain.com
-```
-
----
+![Appa screenshot](main.png)
 
 ## The Stack
 

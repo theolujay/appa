@@ -62,7 +62,7 @@ make build/api  # Build the Go binary for host and linux/amd64
 │   │   ├── runner.go      # Docker container lifecycle
 │   │   └── router.go      # Caddy admin API integration
 │   ├── validator/     # Input validation helpers
-│   └── vcs/           # Build version injection
+│   └── vcs/           # Binary version info
 ├── migrations/        # SQL migration files
 ├── scripts/           # Utility scripts (db-init, etc.)
 ├── ui/                # React frontend (TanStack Router + Query)
@@ -104,7 +104,5 @@ All routes are prefixed with `/v1/` and proxied through Caddy.
 
 ## Coding Conventions
 
-- **No comments in production code** unless they explain a non-obvious trade-off.
 - Follow existing patterns for imports, error handling, and naming.
 - Run `make tidy` and `make audit` before committing.
-- Architecture decisions belong in `ARCHITECTURE.md`, not in code comments.

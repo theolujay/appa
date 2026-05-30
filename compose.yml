@@ -41,6 +41,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - "RAILPACK_VERSION=${RAILPACK_VERSION}"
     command:
       - "/usr/bin/appa"
       - "-port=$PORT"
@@ -72,8 +74,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      BUILDKIT_HOST: "docker-container://buildkit"
-      DOCKER_HOST: "unix:///var/run/docker.sock"
+      - "BUILDKIT_HOST=docker-container://buildkit"
+      - "DOCKER_HOST=unix:///var/run/docker.sock"
+      - "RAILPACK_VERSION=v0.23.0"
     image: "api:dev"
     networks:
       - "appa_net"

@@ -78,6 +78,11 @@ func (p *Pipeline) Prepare(ctx context.Context, id int64, source string) (string
 func (p *Pipeline) Build(ctx context.Context, id int64, buildDir string) (string, error) {
 	// TODO: consider versioning for rollback features
 	imageTag := fmt.Sprintf("appa-%d", id)
+	railpackVersion := os.Getenv("RAILPACK_VERSION")
+
+	if railpackVersion == "" {
+		return "", fmt.Errorf("build failed: railpack version not set")
+	}
 
 	buildctl := exec.CommandContext(
 		ctx,
@@ -89,7 +94,7 @@ func (p *Pipeline) Build(ctx context.Context, id int64, buildDir string) (string
 		fmt.Sprintf("dockerfile=%s", buildDir),
 		"--frontend=gateway.v0",
 		"--opt",
-		"source=ghcr.io/railwayapp/railpack-frontend:v0.23.0",
+		fmt.Sprintf("source=ghcr.io/railwayapp/railpack-frontend:%s", railpackVersion),
 		"--output",
 		fmt.Sprintf("type=docker,name=%s", imageTag),
 	)
