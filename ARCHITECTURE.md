@@ -1,117 +1,354 @@
-# Appa: System Architecture
+# Appa Architecture
 
-For setup instructions and contribution guidelines, see [CONTRIBUTING.md](./CONTRIBUTING.md).
+Appa is a self-hostable deployment platform that turns a Git repository or ZIP
+archive into a running container behind a stable URL. It combines a Go API,
+PostgreSQL, BuildKit, Railpack, Docker, Caddy, and a React dashboard into a
+single-node platform stack.
 
-## Overview
+This document is the technical architecture reference. Setup instructions and
+contribution guidelines live in [CONTRIBUTING.md](./CONTRIBUTING.md). Delivery
+phases and future work live in [ROADMAP.md](./ROADMAP.md).
 
-Appa is a self-hostable, zero-config deployment platform designed to simplify the transition from source code to a live, secure URL. It accepts Git repositories or ZIP archives, builds optimized container images using Railpack and BuildKit, manages the container lifecycle via the Docker SDK, and handles dynamic routing through the Caddy Admin API.
+## Architectural Questions
 
-The system is built on three core pillars:
-1.  **Zero-Config for Developers:** Language-agnostic builds without requiring a `Dockerfile`.
-2.  **Simplified Operations:** Single-command installation and automated VPS management.
-3.  **Production Readiness:** Automatic wildcard TLS via DNS-01 challenges and self-healing routing.
+This document answers:
+
+1. What runtime components make up an Appa instance?
+2. How does source code become a routed application container?
+3. How are build and runtime logs delivered to the dashboard?
+4. What implementation invariants must not be violated?
+5. How does the system recover from expected failures?
+
+## Glossary
+
+| Term | Meaning |
+| --- | --- |
+| Operator | Person running an Appa instance on their own server. |
+| Developer | User who deploys applications through Appa. |
+| Deployment | One submitted source package and its lifecycle state. |
+| Source | Git URL or extracted ZIP archive path used for a deployment. |
+| Railpack | Runtime detector and build-plan generator. |
+| BuildKit | Build daemon that executes the Railpack build plan. |
+| Build plan | `railpack-plan.json`, the declarative input consumed by the Railpack BuildKit frontend. |
+| Image tag | Local Docker image name produced for a deployment, currently `appa-{id}`. |
+| App container | User workload container created from the built image. |
+| Route | Caddy reverse-proxy mapping from deployment hostname to app container address. |
+| Hub | In-process WebSocket broadcaster for deployment logs and status changes. |
+| `appa_net` | Internal Docker network shared by platform services and app containers. |
+
+## Components
 
 ```plaintext
-        [ 1. PROVISION ]          [ 2. INSTALL ]          [ 3. DEPLOY ]
-   Get any Ubuntu VPS   ──▶   appa.dev/install  ──▶   Paste your Git URL
-   (DigitalOcean, etc.)      (One-command setup)      (Zero-config build)
-
-           │                        │                       │
-           ▼                        ▼                       ▼
-
-   [  VPS IS READY  ]       [ PLATFORM LIVE ]       [  APP IS LIVE  ]
-   Fixed monthly cost       TLS & DNS managed       app.yourdomain.com
+                  Operator / Developer Browser
+                             │
+                             ▼
+                      [ React Dashboard ]
+                     deploy, cancel, logs
+                             │
+                             ▼
+          ┌──────────── [ Caddy Gateway ] ────────────┐
+          │        HTTP routing + TLS boundary         │
+          ▼                                            ▼
+     [ Appa API ]                              [ User App Route ]
+ Go HTTP server, auth,                         {id}.localhost in dev
+ deployment pipeline,                                   │
+ WebSocket hub                                          ▼
+          │                                      [ App Container ]
+          │                                      appa-{deployment_id}
+          │                                             │
+          ├──────────────┬──────────────┬──────────────┤
+          ▼              ▼              ▼              ▼
+   [ PostgreSQL ]   [ BuildKit ]   [ Docker API ]  [ Caddy Admin API ]
+ users, tokens,     privileged     image load,     dynamic routes,
+ deployments, logs  build daemon   container run   route restore
+          ▲              ▲
+          │              │
+          └────── [ Railpack CLI + BuildKit Frontend ]
+                  runtime detection and image build
 ```
 
-## The Problem
+## Core Flows
 
-Managed platforms (Railway, Render, Fly.io) provide excellent DX but often lead to unpredictable costs and limited infrastructure control. Setting up a private alternative traditionally requires deep expertise in reverse proxies, container orchestration, TLS management, and CI/CD pipelines.
+### User Deploys a Git Repository
 
-Appa eliminates this complexity by packaging a complete platform stack into a single, cohesive system. It serves two primary roles:
-*   **The Operator:** Manages the Appa instance on their own hardware.
-*   **The Developer:** Deploys and manages applications through the Appa interface.
+1. An activated user submits a Git URL and optional environment variables.
+2. The API validates the deployment input and creates a `Deployment` row with
+   `pending` status.
+3. A background pipeline task is registered so it can be cancelled later.
+4. The deployment status changes to `building`.
+5. The pipeline clones the repository into a temporary build directory.
+6. `railpack prepare` inspects the source and writes `railpack-plan.json` and
+   `railpack-info.json`.
+7. `buildctl build` runs the Railpack BuildKit frontend with the generated plan.
+8. The built Docker image tar stream is piped directly into `docker load`.
+9. The deployment status changes to `deploying`.
+10. The Docker API creates and starts `appa-{deployment_id}` on `appa_net`.
+11. The pipeline waits for the selected container port to accept TCP traffic.
+12. The Caddy Admin API receives a route from `{deployment_id}.localhost` to the
+    app container address.
+13. The deployment row is updated to `running` with its URL and internal address.
 
-## System Architecture
+### User Deploys a ZIP Archive
 
-The system is organized into three logical layers:
+1. The API accepts a multipart upload with a 100 MB request limit.
+2. The uploaded ZIP is extracted into `/tmp/appa-upload/{uuid}`.
+3. A `Deployment` row is created with source label `uploaded-project`.
+4. The background pipeline runs against the extracted local directory.
+5. The rest of the build, container startup, routing, and logging flow is the
+   same as a Git deployment.
 
-### 1. Network Boundary Layer (Caddy)
-Caddy acts as the gateway for all inbound traffic on ports 80 and 443. It performs TLS termination (in production) and routes requests based on the host header to either the **Platform UI/API** or the **User Applications**.
+Uploaded project directories are treated as build inputs, not long-term storage.
+The deployment artifact of record is the loaded Docker image and running
+container.
 
-### 2. Platform Layer (Services)
-The Go API, PostgreSQL, BuildKit, and React UI run as Docker Compose services on a shared internal network (`appa_net`), inaccessible from the public internet except through Caddy. User containers launched by the deployment pipeline are connected to `appa_net` at startup, making them reachable by Caddy directly via their container address.
+### User Streams Deployment Logs
 
-### 3. Pipeline Layer (Orchestration)
-The sequence of operations executed by the Go API for every deployment:
+1. An authenticated user opens `/v1/deployments/{id}/logs`.
+2. The API verifies that the deployment belongs to the user.
+3. The HTTP connection is upgraded to WebSocket.
+4. Historical log rows are loaded from PostgreSQL and sent first.
+5. The connection registers with the in-process hub for live events.
+6. Build, deploy, route, cancellation, and status events are sent as they happen.
+7. Ping/pong deadlines detect dead clients and unregister them.
 
+Logs are persisted before live publication. A disconnected client can reconnect
+and replay the database-backed history before receiving live events.
+
+### API Startup Restores Routes
+
+1. The API creates a Caddy router client for `caddy:2019`.
+2. A background startup task queries PostgreSQL for `running` deployments.
+3. Each running deployment with a stored internal address is re-registered in
+   Caddy.
+4. Individual route-restore failures are logged and do not abort the whole
+   restore pass.
+
+This makes Caddy configuration recoverable from API or Caddy restarts without
+requiring users to redeploy applications.
+
+### User Cancels or Stops a Deployment
+
+1. The API verifies the requesting user owns the deployment.
+2. If the deployment has an active pipeline task, the task context is cancelled.
+3. If no active task exists, the pipeline stops the app container.
+4. The Caddy route is removed.
+5. The deployment status changes to `stopped` when a running container is stopped,
+   or `canceled` when an active pipeline observes cancellation during failure
+   handling.
+
+## Enforceable Invariants
+
+These are implementation rules, not suggestions.
+
+1. **Every deployment read or mutation exposed to a user must be ownership-scoped.**
+   User-facing handlers must check `deployment.user_id` before returning logs,
+   cancelling, stopping, or exposing deployment details.
+
+2. **Binary build output must never pass through text log scanners.**
+   `buildctl` stdout is the Docker image tar stream and must pipe directly into
+   `docker load`. Only stderr build progress is safe to scan and broadcast.
+
+3. **Railpack CLI and Railpack frontend versions must be kept compatible.**
+   The CLI generates the plan and the frontend consumes it. Upgrade them as one
+   unit.
+
+4. **Caddy Admin API must remain internal to `appa_net`.**
+   Runtime route mutation is powerful enough to control public traffic. Port
+   `2019` must not be exposed to the public internet.
+
+5. **User app containers must be reachable by stable internal names.**
+   Caddy routes dial `appa-{deployment_id}:{port}` on `appa_net`. Container
+   naming and network attachment are part of the routing contract.
+
+6. **Deployment status changes must be persisted and published.**
+   PostgreSQL is the source of truth for reloads and history. The hub is only the
+   live delivery path.
+
+7. **Route registration happens only after container readiness succeeds.**
+   Caddy should not route public traffic to a container that has not accepted a
+   TCP connection on its selected port.
+
+8. **Logs must be persisted before WebSocket publication.**
+   Live delivery is best-effort; persisted logs are required for reconnect and
+   historical viewing.
+
+9. **Uploaded archives must be extracted into isolated per-upload directories.**
+   ZIP deployments must not share a build directory across deployments.
+
+10. **Platform services and user workloads share a network, not a process.**
+    User applications run as separate Docker containers; they are not executed
+    inside the API process.
+
+## Core Data Model
+
+| Model | Represents | Important Fields |
+| --- | --- | --- |
+| `User` | Account and ownership boundary | `id`, `name`, `email`, `password_hash`, `activated`, `version` |
+| `Token` | Authentication or activation credential | `hash`, `user_id`, `expiry`, `scope` |
+| `Deployment` | One app deployment lifecycle | `id`, `user_id`, `source`, `status`, `image_tag`, `address`, `env_vars`, `url`, `version` |
+| `Log` | Ordered deployment log event | `id`, `deployment_id`, `phase`, `line`, `ts` |
+
+```plaintext
+User ─── (1:N) ─── Deployment ─── (1:N) ─── Log
+  └── (1:N) ─── Token
 ```
-Source Acquisition ──▶ Plan Generation ──▶ Image Build ──▶ Container Start ──▶ Route Registration
+
+`deployments.user_id` is the ownership boundary for user-facing deployment
+operations. `logs.deployment_id` cascades on deployment deletion, so log history
+does not outlive the deployment row.
+
+## State Machines
+
+### Deployment Lifecycle
+
+```plaintext
+pending ──▶ building ──▶ deploying ──▶ running ──▶ stopped
+              │            │             │
+              ├────────────┴─────────────┴──▶ failed
+              │
+              └──▶ canceled
 ```
 
-## Key Design Decisions
+`pending` is created synchronously in the request handler. `building`,
+`deploying`, and `running` are set by the background pipeline. `stopped` is set
+when a running deployment is stopped. `failed` represents pipeline failure.
+`canceled` represents cancellation observed while the active pipeline is being
+unwound.
 
-**Installation & Bootstrapping (Planned)**
+### Pipeline Phases
 
-Appa prioritizes a "Batteries Included" installation. The primary method will be a bash script (`appa.dev/install.sh`) that automates Docker installation, environment configuration, and stack deployment — modelled after how tools like Coolify and CapRover install via a single `curl | sh` command. For advanced infrastructure management, an **Ansible Playbook** (planned for the `ansible/` directory) will handle OS hardening, firewall rules (UFW), and SSH security. Currently, installation requires cloning the repository and running `docker compose up --build` manually.
+```plaintext
+source acquisition ──▶ railpack prepare ──▶ buildkit build
+         ──▶ docker load ──▶ container start ──▶ caddy route
+```
 
----
+The phase labels persisted in logs are currently `build`, `deploy`, `routing`,
+and `cancel`.
 
-**Caddy as a Containerized Service**
+## Failure Model
 
-Caddy runs as a Docker container rather than a host-installed binary. In development, it uses a standard Alpine-based Caddy image. For production (planned), a custom `xcaddy` build compiled with the `caddy-dns/cloudflare` plugin will be used to enable wildcard TLS. Running Caddy as a container rather than a host binary serves three purposes: local development works identically to production without any system-level installation; the custom xcaddy build is versioned and distributed as a Docker image; and the Admin API port (2019) stays internal to `appa_net` and is never reachable from the public internet.
+Appa assumes external processes and containers can fail. The intended recovery
+model is built from durable deployment rows, persisted logs, route restoration,
+and explicit status updates.
 
----
+| Failure | Recovery Behavior |
+| --- | --- |
+| Git clone fails | The pipeline records a build failure, marks the deployment `failed`, publishes status, and removes the temporary build directory. |
+| `railpack prepare` fails | The deployment remains inspectable with persisted build logs and is marked `failed`. |
+| `RAILPACK_VERSION` is missing | Build fails before invoking the Railpack frontend; the deployment is marked `failed`. |
+| BuildKit or `docker load` fails | Build logs are persisted from stderr; the deployment is marked `failed`. |
+| API process exits during build | In-memory active-task state and live hub clients are lost; persisted deployment and logs remain. Automatic build resumption is not implemented. |
+| Container fails readiness check | The deployment is marked `failed`; logs include the readiness failure. |
+| Caddy route registration fails | The deployment does not become `running`; the route error is surfaced through the pipeline failure path. |
+| Caddy restarts | Startup route restoration re-adds routes for deployments stored as `running` with an address. |
+| WebSocket client disconnects | The hub unregisters the client; persisted logs allow replay on reconnect. |
+| User stops a running deployment | The container is stopped, the Caddy route is removed, and status becomes `stopped`. |
 
-**BuildKit as a Separate Privileged Service**
+Known implementation gap: `Pipeline.Run` must ensure build, container startup,
+and route registration errors cannot fall through to the final `running` status
+update. Failure handling after `Prepare` should be audited before relying on the
+failure model above in production.
 
-BuildKit requires elevated Linux capabilities to manage overlay filesystems and container namespaces -- specifically, the ability to create and mount filesystem layers for each build step. Running it with `privileged: true` in a dedicated container confines those elevated capabilities to a single, isolated service. Embedding `buildkitd` inside the API container would mean the entire API process runs with the same elevated privileges, unnecessarily broadening the attack surface. Separating the two also means a crash in the build daemon does not bring down the API, and vice versa.
+## Design Decisions
 
-The API communicates with the daemon via `BUILDKIT_HOST=docker-container://buildkit`, which routes over BuildKit's internal gRPC socket without exposing anything on the host network.
+### Caddy as the Network Boundary
 
----
+Caddy is the only public HTTP boundary. It routes platform traffic to the UI/API
+and deployment traffic to user app containers by host header. The API mutates
+Caddy configuration through the Admin API instead of writing static Caddyfile
+fragments per deployment.
 
-**Two-Phase Build Pipeline**
+For development, routes use `{deployment_id}.localhost`. For production,
+wildcard subdomains require wildcard TLS, which is why DNS-01 support is part of
+the production path.
 
-Each deployment executes two distinct phases, handled by separate tools that must stay at matching versions:
+### Caddy as a Containerized Service
 
-*   **Prepare Phase:** The **Railpack CLI** (installed in the API container) inspects the source code and generates a `railpack-plan.json`. This phase detects the runtime (Node.js, Go, Python, etc.) and required dependencies, producing a declarative build plan.
-*   **Build Phase:** `buildctl` invokes the **Railpack BuildKit frontend image** (`ghcr.io/railwayapp/railpack-frontend`) with the plan as input. The frontend produces LLB for the BuildKit daemon to execute.
+Caddy runs as a Docker container rather than a host-installed binary. This keeps
+local development and production topology close, lets Appa distribute a custom
+production Caddy image, and keeps the Admin API on the internal Docker network.
 
-The output from the build phase flows through two separate streams. The image tarball — binary data — travels through `buildctl`'s stdout and is piped directly into `docker load`. Build progress, which is human-readable text, travels through stderr and is fanned out to connected WebSocket clients. These two streams must never be combined: routing binary tar bytes through a text reader produces garbage output because the scanner interprets them as malformed UTF-8.
+The production Caddy image is expected to be built with `xcaddy` and the
+`caddy-dns/cloudflare` plugin so Caddy can obtain wildcard certificates through
+DNS-01 challenges.
 
----
+### BuildKit as a Separate Privileged Service
 
-**Wildcard TLS via DNS-01 Challenge (Planned)**
+BuildKit needs elevated Linux capabilities for build isolation, filesystem
+layers, and container namespaces. Appa isolates those privileges in a dedicated
+BuildKit service instead of putting them in the API container.
 
-Standard ACME certificate issuance (the HTTP-01 challenge) works by having Caddy serve a verification token at a known URL on port 80. Let's Encrypt fetches that URL from the public internet; if the response matches, the certificate is issued. This works for individual named domains but is incompatible with wildcards: a certificate for `*.yourdomain.com` covers an unbounded set of subdomains, and proving ownership of one subdomain does not prove ownership of the entire DNS zone.
+The API talks to the daemon through `BUILDKIT_HOST=docker-container://buildkit`.
+This keeps the build daemon off the public network and prevents BuildKit crashes
+from taking down the API process.
 
-Let's Encrypt therefore requires a DNS-level proof for wildcards, known as the DNS-01 challenge. Instead of serving a file over HTTP, the requester must create a TXT record at `_acme-challenge.yourdomain.com` containing a value Let's Encrypt generates. Let's Encrypt then queries the public DNS for that record; if it finds the right value, it issues the wildcard certificate.
+### Two-Phase Railpack Build
 
-The `caddy-dns/cloudflare` plugin automates every step of this exchange. When Caddy needs a certificate or a renewal, it calls the Cloudflare API with the operator's token to create the TXT record, waits for Let's Encrypt to verify it, and then deletes it. The operator never touches DNS manually after initial setup.
+Each deployment uses two Railpack phases:
 
-Wildcard TLS is not just convenient for Appa — it is architecturally necessary. Without it, every new deployment at `id.yourdomain.com` would require a separate certificate request. Let's Encrypt imposes a rate limit of 50 certificates per registered domain per week, which an active instance would exhaust quickly. A single wildcard certificate covers every deployment subdomain indefinitely, renewed automatically by Caddy thirty days before expiry.
+- `railpack prepare` inspects the source tree and emits build metadata.
+- `buildctl build` invokes the Railpack BuildKit frontend to execute the plan.
 
----
+This split lets Appa stream useful planning and build output while keeping the
+actual build execution inside BuildKit.
 
-**Dynamic Route Provisioning**
+### Docker Image and Container Naming
 
-Appa leverages the **Caddy Admin API** for runtime configuration. When a container starts, the Go API registers a new route mapping the deployment's subdomain (`42.localhost` in dev) to the container's address on `appa_net`.
+The current image tag and container name are deterministic:
 
-*   **Self-Healing:** On startup, the API performs a "Route Restoration" by querying PostgreSQL for all `RUNNING` deployments and re-registering their routes in Caddy, ensuring the platform recovers gracefully from restarts without requiring redeployment.
+- image: `appa-{deployment_id}`
+- container: `appa-{deployment_id}`
 
----
+That makes route restoration and human debugging simple. Rollback support will
+require versioned image tags, but the stable container naming contract should
+remain separate from image versioning.
 
-**WebSocket Log Streaming with the Hub Pattern**
+### Port Selection
 
-Build and runtime logs are streamed to connected clients over WebSocket using the hub pattern: a single goroutine owns all broadcast state and receives log events via a channel, eliminating mutex contention across concurrent deployment sessions. Logs are also persisted to PostgreSQL for historical retrieval.
+Appa uses the first exposed image port when the image declares one. If no ports
+are exposed, it defaults to `3000/tcp`, with a small heuristic for common static
+servers that listen on `80/tcp`.
 
----
+The route points to the container name and selected container port inside
+`appa_net`. Host port publishing is not part of the routing path.
 
-**Tooling with Mise (Aspirational)**
+### WebSocket Log Streaming with the Hub Pattern
 
-Mise is a polyglot tool version manager that Railpack uses internally to install and pin the runtime versions it detects during builds — Node 20.x, Python 3.11, Go 1.21, and so on. Appa does not manage Mise directly; it is a transitive dependency surfaced by Railpack.
+Build and runtime logs are streamed with a hub pattern: one goroutine owns
+connection registration, unregistration, and broadcast state. This avoids shared
+map mutation across deployment goroutines.
 
-Aspirationally, a `.mise.toml` at the project root will pin the Go version and any development tools, ensuring consistent environments across contributors and CI. This is not yet in place.
+The database remains the durable log store. The hub only handles live delivery.
+
+### Wildcard TLS via DNS-01 Challenge
+
+HTTP-01 ACME challenges do not work for wildcard certificates. Appa needs a
+wildcard certificate because each deployment gets its own subdomain and issuing a
+new certificate for every deployment would hit certificate rate limits on active
+instances.
+
+DNS-01 proves control of the DNS zone with a TXT record at
+`_acme-challenge.{domain}`. Caddy DNS plugins automate creating and deleting
+that TXT record during certificate issuance and renewal.
+
+## Operational Constraints
+
+- Run the API, PostgreSQL, BuildKit, Caddy, and UI on the shared internal Docker
+  network expected by `compose.yml`.
+- Do not expose PostgreSQL, BuildKit, Docker socket access, or the Caddy Admin
+  API to the public internet.
+- Keep the Docker socket access limited to the API container; the API is the
+  container lifecycle authority.
+- BuildKit remains privileged, but that privilege should not be copied into the
+  API service.
+- Route restoration depends on accurate `deployments.status` and
+  `deployments.address` values.
+- Environment variables are currently stored as plaintext deployment data; treat
+  them as sensitive and avoid logging them.
+- Deployment ZIP extraction must preserve per-upload isolation and should reject
+  unsafe archive paths before production use.
+- MVP deployment targets single-node Docker Compose. Orchestration evolution is
+  tracked in [ROADMAP.md](./ROADMAP.md).
 
 ## Repository Structure
 
@@ -133,6 +370,7 @@ Aspirationally, a `.mise.toml` at the project root will pin the Go version and a
 ├── scripts/           # Utility scripts (database initialization)
 ├── ui/                # React dashboard (TanStack Router + Query)
 ├── ARCHITECTURE.md    # This document
+├── ROADMAP.md         # Delivery phases and future evolution
 ├── CONTRIBUTING.md    # Setup, API reference, and contribution guidelines
 ├── Caddyfile          # Reverse proxy and routing configuration
 ├── Dockerfile         # Multi-stage build for the Go API and its dependencies
@@ -144,7 +382,7 @@ Aspirationally, a `.mise.toml` at the project root will pin the Go version and a
 
 **DNS Provider Coupling**
 
-The v1 implementation is optimized for **Cloudflare**. While the architecture supports other providers via different `caddy-dns` plugins, Cloudflare remains the default for the "zero-config" experience. Future iterations will aim for a provider-agnostic plugin system.
+The v1 implementation is optimized for **Cloudflare**. While the architecture supports other providers via different `caddy-dns` plugins, Cloudflare remains the default for the "zero-config" experience. Provider abstraction is tracked in [ROADMAP.md](./ROADMAP.md).
 
 **Railpack CLI and Frontend Version Coupling**
 
@@ -154,23 +392,7 @@ The Railpack CLI (installed in the API container at build time) and the Railpack
 
 Appa currently leverages standard **Docker Compose** to fulfill its promise of a "single-command" setup for single-node environments. While Compose provides the simplicity required for v1, it is fundamentally a development tool that lacks advanced production orchestration features such as health-based service restarts, zero-downtime updates, and multi-node scaling.
 
-To bridge this gap without introducing significant complexity, the architecture defines a clear evolutionary path. The next phase will involve a transition to **Docker Stack**, which allows deploying Compose-formatted files to a single-node **Docker Swarm** cluster. This provides production-grade orchestration capabilities while maintaining the single-node simplicity that defines Appa's core value proposition. Full multi-node Swarm support remains a long-term goal for high-availability requirements.
-
-## Roadmap & Future Features
-
-### Phase 1: Stability & Performance
-*   **Build Caching:** Persistent volumes for Railpack to skip redundant build steps.
-*   **Resource Limits:** Enforcement of CPU/Memory caps per container via the Docker API.
-*   **Reliability Hardening:** Improved error recovery in the pipeline stages.
-
-### Phase 2: Operations & Scale
-*   **Automated Backups:** Project-scoped database snapshots to S3-compatible storage.
-*   **Observability:** Integrated Prometheus/Grafana stack for app performance monitoring.
-*   **Rollbacks:** Instant switching between successful image tags.
-
-### Phase 3: Advanced Networking
-*   **Multi-Provider DNS:** Support for AWS Route53, DigitalOcean, and Google DNS.
-*   **Horizontal Scaling:** Basic load balancing across multiple application instances.
+The architectural constraint is that deployment and routing code should not assume Compose is the only possible service backend. The evolution path is tracked in [ROADMAP.md](./ROADMAP.md).
 
 ## Reference Documentation
 
