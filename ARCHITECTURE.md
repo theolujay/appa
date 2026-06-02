@@ -1,9 +1,11 @@
 # Appa Architecture
 
 Appa is a self-hostable deployment platform that turns a Git repository or ZIP
-archive into a running container behind a stable URL. It combines a Go API,
+archive into a running container behind a stable URL. The product has two
+planned surfaces: the Appa CLI installed on the operator's machine, and an Appa
+Server instance running on a remote VPS. The server stack combines a Go API,
 PostgreSQL, BuildKit, Railpack, Docker, Caddy, and a React dashboard into a
-single-node platform stack.
+single-node platform runtime.
 
 This document is the technical architecture reference. Setup instructions and
 contribution guidelines live in [CONTRIBUTING.md](./CONTRIBUTING.md). Delivery
@@ -14,15 +16,22 @@ phases and future work live in [ROADMAP.md](./ROADMAP.md).
 This document answers:
 
 1. What runtime components make up an Appa instance?
-2. How does source code become a routed application container?
-3. How are build and runtime logs delivered to the dashboard?
-4. What implementation invariants must not be violated?
-5. How does the system recover from expected failures?
+2. How does the Appa CLI provision and manage a remote instance?
+3. How does source code become a routed application container?
+4. How are build and runtime logs delivered to the dashboard?
+5. What implementation invariants must not be violated?
+6. How does the system recover from expected failures?
 
 ## Glossary
 
 | Term | Meaning |
 | --- | --- |
+| Appa | The whole product, including the CLI and remote server runtime. |
+| Appa CLI | Local operator/developer command-line tool, binary `appa`. |
+| Appa Server | Remote API, dashboard, and deployment runtime installed on a VPS. |
+| Appa Instance | One remote Appa Server installation managed by the CLI. |
+| Appa Stack | Server-side services: API, UI, PostgreSQL, BuildKit, Caddy, and their runtime configuration. |
+| Instance profile | Local CLI configuration for one Appa Instance, including SSH target and redacted or encrypted settings. |
 | Operator | Person running an Appa instance on their own server. |
 | Developer | User who deploys applications through Appa. |
 | Deployment | One submitted source package and its lifecycle state. |
@@ -39,35 +48,76 @@ This document answers:
 ## Components
 
 ```plaintext
-                  Operator / Developer Browser
-                             │
-                             ▼
-                      [ React Dashboard ]
-                     deploy, cancel, logs
-                             │
-                             ▼
-          ┌──────────── [ Caddy Gateway ] ────────────┐
-          │        HTTP routing + TLS boundary         │
-          ▼                                            ▼
-     [ Appa API ]                              [ User App Route ]
- Go HTTP server, auth,                         {id}.localhost in dev
- deployment pipeline,                                   │
- WebSocket hub                                          ▼
-          │                                      [ App Container ]
-          │                                      appa-{deployment_id}
-          │                                             │
-          ├──────────────┬──────────────┬──────────────┤
-          ▼              ▼              ▼              ▼
-   [ PostgreSQL ]   [ BuildKit ]   [ Docker API ]  [ Caddy Admin API ]
- users, tokens,     privileged     image load,     dynamic routes,
- deployments, logs  build daemon   container run   route restore
-          ▲              ▲
-          │              │
-          └────── [ Railpack CLI + BuildKit Frontend ]
-                  runtime detection and image build
+                        Operator Machine
+               ┌────────────────────────────────┐
+               │            Appa CLI            │
+               │ instance profiles, preflight,  │
+               │ setup/apply/status operations  │
+               └───────────────┬────────────────┘
+                               │ SSH + Ansible
+                               ▼
+                   Remote VPS / Appa Instance
+        ┌──────────────────────────────────────────────┐
+        │                 Appa Stack                   │
+        │ Docker Compose services + generated config   │
+        └──────────────────────┬───────────────────────┘
+                               │
+                               ▼
+                   Operator / Developer Browser
+                               │
+                               ▼
+                         [ React Dashboard ]
+                         deploy, cancel, logs
+                               │
+                               ▼
+            ┌──────────── [ Caddy Gateway ] ────────────┐
+            │        HTTP routing + TLS boundary        │
+            ▼                                           ▼
+      [ Appa API ]                                [ User App Route ]
+   Go HTTP server, auth,                         {id}.localhost in dev
+   deployment pipeline,                                 │
+   WebSocket hub                                        ▼
+            │                                      [ App Container ]
+            │                                     appa-{deployment_id}
+            │                                            │
+            ├──────────────┬──────────────┬──────────────┤
+            ▼              ▼              ▼              ▼
+      [ PostgreSQL ]   [ BuildKit ]   [ Docker API ]  [ Caddy Admin API ]
+   users, tokens,     privileged     image load,     dynamic routes,
+   deployments, logs  build daemon   container run   route restore
+            ▲              ▲
+            │              │
+            └────── [ Railpack CLI + BuildKit Frontend ]
+                     runtime detection and image build
 ```
 
+The CLI is the operator-facing control surface for provisioning and maintenance.
+The Appa Server remains the authority for application deployments, builds, app
+containers, routes, logs, users, and tokens.
+
 ## Core Flows
+
+### Operator Provisions an Appa Instance
+
+1. The operator installs the Appa CLI on their own machine with
+   `appa.dev/install.sh`.
+2. The operator creates a local instance profile, for example
+   `appa instance init personal`.
+3. The operator sets an SSH target with
+   `appa instance set-host personal root@203.0.113.10`.
+4. `appa preflight personal` checks SSH access, supported OS, required ports,
+   DNS readiness when configured, and required operator inputs.
+5. `appa setup personal` invokes Ansible with generated inventory and variables.
+6. Ansible prepares the host, installs Docker/Compose dependencies, creates the
+   Appa runtime directory, writes environment and Caddy configuration, and
+   starts the Appa Stack.
+7. The CLI reports the Appa Server URL and stores enough local state for later
+   `appa apply`, `appa status`, `appa logs`, `appa restart`, and `appa upgrade`
+   operations.
+
+First setup should support progressive configuration. An operator should be able
+to define only the SSH target first, then add domain, Cloudflare, SMTP, backup,
+and monitoring settings as they become available.
 
 ### User Deploys a Git Repository
 
@@ -149,8 +199,8 @@ These are implementation rules, not suggestions.
    `docker load`. Only stderr build progress is safe to scan and broadcast.
 
 3. **Railpack CLI and Railpack frontend versions must be kept compatible.**
-   The CLI generates the plan and the frontend consumes it. Upgrade them as one
-   unit.
+   The Railpack CLI generates the plan and the frontend consumes it. Upgrade
+   them as one unit.
 
 4. **Caddy Admin API must remain internal to `appa_net`.**
    Runtime route mutation is powerful enough to control public traffic. Port
@@ -178,6 +228,19 @@ These are implementation rules, not suggestions.
 10. **Platform services and user workloads share a network, not a process.**
     User applications run as separate Docker containers; they are not executed
     inside the API process.
+
+11. **The CLI must not become a second deployment engine.**
+    Instance operations may use Ansible to manage host and Appa Stack state, but
+    project deployments should go through the Appa Server API.
+
+12. **Remote provisioning must be idempotent.**
+    `appa setup` and `appa apply` should be safe to rerun and should converge
+    the remote host toward the requested instance profile.
+
+13. **Operator secrets must not be logged.**
+    Domain provider tokens, SMTP credentials, database passwords, backup keys,
+    and deployment environment variables must be redacted in CLI output,
+    Ansible logs, and documentation examples.
 
 ## Core Data Model
 
@@ -331,6 +394,21 @@ DNS-01 proves control of the DNS zone with a TXT record at
 `_acme-challenge.{domain}`. Caddy DNS plugins automate creating and deleting
 that TXT record during certificate issuance and renewal.
 
+### CLI-Managed Remote Provisioning
+
+`appa.dev/install.sh` installs the Appa CLI on the operator's machine. It should
+not be treated as a server-side bootstrap script to run directly on the VPS.
+
+The CLI owns local instance profiles, command-line validation, preflight checks,
+Ansible inventory generation, and user-facing progress output. Ansible owns the
+remote host mutations: package installation, Docker setup, firewall and
+hardening tasks, Appa Stack file placement, environment rendering, and Compose
+service lifecycle.
+
+The Appa Server API remains responsible for application deployment behavior. This
+keeps the boundary clear: Ansible installs and operates the platform; the API
+deploys and manages user applications inside the platform.
+
 ## Operational Constraints
 
 - Run the API, PostgreSQL, BuildKit, Caddy, and UI on the shared internal Docker
@@ -345,6 +423,13 @@ that TXT record during certificate issuance and renewal.
   `deployments.address` values.
 - Environment variables are currently stored as plaintext deployment data; treat
   them as sensitive and avoid logging them.
+- CLI-managed instance profiles may contain secrets; store them in redacted or
+  encrypted form and pass them to Ansible without exposing them in logs.
+- Remote setup must allow configuration to be applied in stages. Domain, DNS,
+  SMTP, backups, and monitoring should be configurable after first contact with
+  the VPS.
+- Ansible playbooks and roles should be idempotent and safe to rerun from
+  `appa setup` or `appa apply`.
 - Deployment ZIP extraction must preserve per-upload isolation and should reject
   unsafe archive paths before production use.
 - MVP deployment targets single-node Docker Compose. Orchestration evolution is
@@ -354,7 +439,10 @@ that TXT record during certificate issuance and renewal.
 
 ```text
 .
-├── cmd/api/           # Server entry point: bootstrap, flags, server config
+├── cmd/
+|   ├──cli/            # Planned CLI entry point for instance and project commands
+|   ├──cmd/api/        # Server entry point: bootstrap, flags, server config
+├── deploy/ansible/    # Planned playbooks, roles, inventory templates, Molecule tests
 ├── internal/
 │   ├── data/          # Database models and query methods
 │   ├── hub/           # WebSocket broadcast hub (single-goroutine ownership pattern)
@@ -386,13 +474,21 @@ The v1 implementation is optimized for **Cloudflare**. While the architecture su
 
 **Railpack CLI and Frontend Version Coupling**
 
-The Railpack CLI (installed in the API container at build time) and the Railpack BuildKit frontend image (pulled at runtime via `buildctl`) must be kept at matching versions. The CLI generates the build plan; the frontend consumes it. A version mismatch between them can produce silent build failures or unexpected behavior. Both are currently pinned and must be updated together whenever Railpack is upgraded.
+The Railpack CLI (installed in the API container at build time) and the Railpack BuildKit frontend image (pulled at runtime via `buildctl`) must be kept at matching versions. The Railpack CLI generates the build plan; the frontend consumes it. A version mismatch between them can produce silent build failures or unexpected behavior. Both are currently pinned and must be updated together whenever Railpack is upgraded.
 
 **Orchestration Scope**
 
 Appa currently leverages standard **Docker Compose** to fulfill its promise of a "single-command" setup for single-node environments. While Compose provides the simplicity required for v1, it is fundamentally a development tool that lacks advanced production orchestration features such as health-based service restarts, zero-downtime updates, and multi-node scaling.
 
 The architectural constraint is that deployment and routing code should not assume Compose is the only possible service backend. The evolution path is tracked in [ROADMAP.md](./ROADMAP.md).
+
+**CLI Scope**
+
+The CLI starts as an operator tool for Appa Instance provisioning and
+maintenance. Long term, it can also become a developer workflow surface for
+project deployment, logs, environment variables, and rollbacks. Project-level
+commands should call the Appa Server API instead of bypassing it with direct
+SSH, Docker, or Ansible operations.
 
 ## Reference Documentation
 

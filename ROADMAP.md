@@ -17,6 +17,22 @@ and system design decisions live in [ARCHITECTURE.md](./ARCHITECTURE.md).
 - Persisted deployment records and historical logs.
 - Local development flow using `localhost` subdomains.
 
+## CLI & Remote Operations
+
+- Appa CLI installer at `appa.dev/install.sh`; the script installs the local
+  CLI on the operator's machine, not the remote server stack.
+- Instance profiles for managing one or more remote Appa installations.
+- SSH target configuration for each instance profile.
+- Preflight checks for SSH access, supported OS, ports, Docker readiness, DNS,
+  and required operator inputs.
+- Remote setup through `appa setup <instance>`, backed by Ansible playbooks.
+- Idempotent `appa apply <instance>` for configuration changes after initial
+  setup.
+- Basic remote operations: `status`, service logs, restart, upgrade, and
+  uninstall safeguards.
+- Local secret handling for instance configuration, with Ansible Vault or a
+  comparable encryption path for sensitive values.
+
 ## Stability & Performance
 
 - Persistent build cache volumes so Railpack and BuildKit can skip redundant work.
@@ -30,9 +46,11 @@ and system design decisions live in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Operations & Scale
 
-- One-command installer at `appa.dev/install.sh`.
-- Optional Ansible playbook for OS hardening, UFW rules, SSH security, and
-  repeatable host provisioning.
+- Ansible as the default remote provisioning engine for Appa Server instances.
+- Host provisioning roles for Docker, Compose, Appa Stack files, environment
+  rendering, firewall rules, and service lifecycle management.
+- Optional hardening roles for UFW rules, SSH security, unattended upgrades, and
+  least-privilege operator access.
 - Automated backups for Appa PostgreSQL data to S3-compatible storage.
 - Project-scoped backup and restore workflows for deployed applications.
 - Integrated Prometheus and Grafana stack for platform and app monitoring.
@@ -56,10 +74,14 @@ and system design decisions live in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ### Installer and Host Provisioning
 
-Appa's default installation path should become a single command that prepares an
-Ubuntu VPS, writes the required environment, starts the platform stack, and
-prints the operator's access URL. The installer should stay small and auditable;
-deeper host hardening belongs in the optional Ansible path.
+Appa's default installation path should start on the operator's machine:
+`appa.dev/install.sh` installs the Appa CLI, then the CLI provisions the remote
+VPS. `appa setup <instance>` should prepare an Ubuntu VPS, write the required
+environment, start the Appa Stack, and print the operator's access URL.
+
+The CLI should allow progressive configuration. The operator should be able to
+create an instance profile with only an SSH target, run preflight checks, and add
+domain, DNS, SMTP, backup, and monitoring settings as they become available.
 
 ### DNS Provider Abstraction
 
@@ -75,6 +97,18 @@ keeps the install and mental model simple. The next step is Docker Stack on a
 single-node Swarm, which preserves most Compose semantics while adding stronger
 restart, update, and service-management behavior. Full multi-node operation is a
 long-term direction for users who need higher availability.
+
+### Project-Level CLI
+
+The first CLI milestone should focus on remote instance operations. Later, the
+same CLI can become a developer workflow surface for projects:
+
+- `appa project init <name>` for local project metadata.
+- `appa deploy` for API-backed deployment to a selected Appa instance.
+- `appa logs`, `appa env`, `appa stop`, and `appa rollback` for project
+  operations.
+- Project-to-instance mappings so one CLI can manage personal, staging, and
+  client Appa instances.
 
 ### Development Tooling
 
