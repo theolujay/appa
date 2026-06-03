@@ -47,7 +47,5 @@ ui/
 
 # Non-Go directories not needed for the API binary build
 Makefile
-scripts/
 docker/
-migrations/
 ansible/

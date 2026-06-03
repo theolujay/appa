@@ -44,7 +44,6 @@ services:
       args:
         - "RAILPACK_VERSION=${RAILPACK_VERSION}"
     command:
-      - "/usr/bin/appa"
       - "-port=$PORT"
       - "-env=$ENV"
       - "-db-dsn=$APPA_DB_DSN"
@@ -71,12 +70,14 @@ services:
       watch:
         - action: rebuild
           path: ./
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
     environment:
       - "BUILDKIT_HOST=docker-container://buildkit"
       - "DOCKER_HOST=unix:///var/run/docker.sock"
       - "RAILPACK_VERSION=v0.23.0"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     image: "api:dev"
     networks:
       - "appa_net"

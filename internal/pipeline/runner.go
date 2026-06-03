@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -157,7 +158,8 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 			pw.Close()
 		}()
 
-		p.streamLogs(id, phaseDeploy, pr)
+		filtered := caddyLogFilter(pr)
+		p.streamLogs(id, phaseDeploy, filtered)
 	}()
 
 	return address, nil
@@ -208,6 +210,8 @@ func (p *Pipeline) StopContainer(id int64) error {
 	return nil
 }
 
+// getFreePort finds and returns an available TCP port by binding to port 0,
+// which causes the OS to automatically assign an available port.
 func getFreePort() (int, error) {
 	// the port number is automatically chosen with 0 as port in address parameter
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -216,4 +220,21 @@ func getFreePort() (int, error) {
 	}
 	defer ln.Close()
 	return ln.Addr().(*net.TCPAddr).Port, nil
+}
+
+// caddyLogFilter filters out Caddy access logs from a reader stream by removing
+// lines containing the logger identifier `"logger":"http.log.access`. It returns
+// a new Reader with the filtered output.
+func caddyLogFilter(r io.Reader) io.Reader {
+	pr, pw := io.Pipe()
+	go func() {
+		s := bufio.NewScanner(r)
+		for s.Scan() {
+			if !strings.Contains(s.Text(), `"logger":"http.log.access`) {
+				fmt.Fprintln(pw, s.Text())
+			}
+		}
+		pw.Close()
+	}()
+	return pr
 }

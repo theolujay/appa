@@ -38,6 +38,9 @@ func (p *Pipeline) Prepare(ctx context.Context, id int64, source string) (string
 		return "", err
 	}
 
+	logID, _ := p.deployment.AppendLog(id, phaseBuild, "preparing...")
+	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: "preparing..."})
+
 	planFile := filepath.Join(buildDir, railpackPlanFile)
 	infoFile := filepath.Join(buildDir, railpackInfoFile)
 
@@ -53,6 +56,7 @@ func (p *Pipeline) Prepare(ctx context.Context, id int64, source string) (string
 	)
 
 	// Pass the user's environment variables
+	//
 	// TODO: implement better handling for secrets
 	if deployment.EnvVars != nil && *deployment.EnvVars != "" {
 		envLines := strings.SplitSeq(*deployment.EnvVars, "\n")
@@ -83,6 +87,9 @@ func (p *Pipeline) Build(ctx context.Context, id int64, buildDir string) (string
 	if railpackVersion == "" {
 		return "", fmt.Errorf("build failed: railpack version not set")
 	}
+
+	logID, _ := p.deployment.AppendLog(id, phaseBuild, "building...")
+	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: "building..."})
 
 	buildctl := exec.CommandContext(
 		ctx,

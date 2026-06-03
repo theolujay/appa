@@ -18,13 +18,13 @@ managing routing by hand.
 
 Go, React, PostgreSQL, Railpack, BuildKit, Docker, and Caddy.
 
-## Local Development
+## Local Setup
 
 ```bash
 git clone https://github.com/theolujay/appa.git
 cd appa
 cp .env.example .env
-docker compose up --build
+docker compose up --build -d
 ```
 
 Open [http://localhost](http://localhost). For environment setup, available

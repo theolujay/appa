@@ -25,7 +25,6 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodPatch, "/v1/deployments/:id", app.cancelDeploymentHandler)
 	router.HandlerFunc(http.MethodGet, "/v1/deployments/:id/logs", app.streamLogsHandler)
 
-
 	router.Handler(http.MethodGet, "/debug/vars", expvar.Handler())
 
 	standard := alice.New(

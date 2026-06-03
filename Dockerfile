@@ -26,3 +26,14 @@ RUN curl -fsSL https://github.com/moby/buildkit/releases/download/v0.30.0/buildk
 RUN curl -sSL https://railpack.com/install.sh | RAILPACK_VERSION=$RAILPACK_VERSION sh -s -- -y
 
 COPY --from=builder /usr/bin/appa /usr/bin/appa
+
+COPY migrations /migrations
+
+RUN curl -fsSL https://github.com/golang-migrate/migrate/releases/download/v4.19.1/migrate.linux-amd64.tar.gz \
+    | tar xz -C /usr/bin
+
+COPY scripts/entrypoint.sh /usr/bin/entrypoint.sh
+RUN chmod +x /usr/bin/entrypoint.sh
+
+ENTRYPOINT ["/usr/bin/entrypoint.sh"]
+CMD ["/usr/bin/appa"]
