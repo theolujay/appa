@@ -19,11 +19,12 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodPut, "/v1/users/activated", app.activateUserHandler)
 	router.HandlerFunc(http.MethodPost, "/v1/tokens/authentication", app.createAuthenticationTokenHandler)
 
-	router.HandlerFunc(http.MethodGet, "/v1/deployments", app.requireActivatedUser(app.listDeploymentsHandler))
-	router.HandlerFunc(http.MethodPost, "/v1/deployments", app.requireActivatedUser(app.createDeploymentHandler))
-	router.HandlerFunc(http.MethodPost, "/v1/deployments/upload", app.requireActivatedUser(app.uploadProjectHandler))
-	router.HandlerFunc(http.MethodPatch, "/v1/deployments/:id", app.requireActivatedUser(app.cancelDeploymentHandler))
-	router.HandlerFunc(http.MethodGet, "/v1/deployments/:id/logs", app.requireActivatedUser(app.streamLogsHandler))
+	router.HandlerFunc(http.MethodGet, "/v1/deployments", app.listDeploymentsHandler)
+	router.HandlerFunc(http.MethodPost, "/v1/deployments", app.createDeploymentHandler)
+	router.HandlerFunc(http.MethodPost, "/v1/deployments/upload", app.uploadProjectHandler)
+	router.HandlerFunc(http.MethodPatch, "/v1/deployments/:id", app.cancelDeploymentHandler)
+	router.HandlerFunc(http.MethodGet, "/v1/deployments/:id/logs", app.streamLogsHandler)
+
 
 	router.Handler(http.MethodGet, "/debug/vars", expvar.Handler())
 

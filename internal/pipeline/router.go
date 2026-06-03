@@ -153,8 +153,9 @@ func (r *Router) RestoreRoutes(dm *data.DeploymentModel) error {
 		Sort:         "id",
 		SortSafelist: []string{"id"},
 	}
-
-	deployments, _, err := dm.GetAll(0, data.RUNNING, filters)
+	// A user ID of 0 is treated as a wildcard
+	// and fetches deployments for all users.
+	deployments, _, err := dm.GetAllForUser(0, data.RUNNING, filters)
 	if err != nil {
 		return fmt.Errorf("failed to list deployments for sync: %w", err)
 	}

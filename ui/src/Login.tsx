@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from '@tanstack/react-router'
 import { config } from './config'
 import { useToast } from './useToast'
-import { useAuth } from './AuthContext'
+import { useAuth } from './useAuth'
 
 const API_BASE = config.apiUrl
 
@@ -11,7 +11,7 @@ export function Login() {
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const { addToast } = useToast()
-  const { login } = useAuth()
+  const { login, enableAnonymous } = useAuth()
   const navigate = useNavigate()
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -32,7 +32,6 @@ export function Login() {
         throw new Error(data.error || 'Invalid credentials')
       }
 
-      // The backend returns { authentication_token: { token: "...", expiry: "..." }, user: { ... } }
       login(data.authentication_token.token, data.user)
       addToast('Logged in successfully', 'success')
       navigate({ to: '/' })
@@ -41,6 +40,12 @@ export function Login() {
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  const handleContinueAsGuest = () => {
+    enableAnonymous()
+    addToast('Continuing as guest', 'info')
+    navigate({ to: '/' })
   }
 
   return (
@@ -76,7 +81,15 @@ export function Login() {
             {isSubmitting ? <span className="spinner" /> : 'Login'}
           </button>
         </form>
-        
+
+        <div className="auth-divider">
+          <span>OR</span>
+        </div>
+
+        <button className="btn-ghost" onClick={handleContinueAsGuest}>
+          Continue as Guest
+        </button>
+
         <p className="auth-footer">
           Don't have an account? <Link to="/register">Register</Link>
         </p>

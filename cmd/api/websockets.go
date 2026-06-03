@@ -53,7 +53,7 @@ func (app *application) streamLogsHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if deployment.UserID != user.ID {
+	if deployment.UserID != nil && *deployment.UserID != user.ID {
 		app.logger.Warn("user not permitted to view logs", "user_id", user.ID, "deployment_id", id, "owner_id", deployment.UserID)
 		app.notPermittedResponse(w, r)
 		return

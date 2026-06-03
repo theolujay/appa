@@ -30,7 +30,10 @@ func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.R
 	deployment := &data.Deployment{
 		Source:  input.Source,
 		EnvVars: &input.EnvVars,
-		UserID:  user.ID,
+	}
+
+	if !user.IsAnonymous() {
+		deployment.UserID = &user.ID
 	}
 
 	v := validator.New()
@@ -95,7 +98,10 @@ func (app *application) uploadProjectHandler(w http.ResponseWriter, r *http.Requ
 	deployment := &data.Deployment{
 		Source:  "uploaded-project",
 		EnvVars: &envVars,
-		UserID:  user.ID,
+	}
+
+	if !user.IsAnonymous() {
+		deployment.UserID = &user.ID
 	}
 
 	if err = app.models.Deployments.Create(deployment); err != nil {
@@ -176,7 +182,7 @@ func (app *application) cancelDeploymentHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if deployment.UserID != user.ID {
+	if deployment.UserID != nil && *deployment.UserID != user.ID {
 		app.notPermittedResponse(w, r)
 		return
 	}
@@ -212,7 +218,7 @@ func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	deployments, metadata, err := app.models.Deployments.GetAll(user.ID, input.Status, input.Filters)
+	deployments, metadata, err := app.models.Deployments.GetAllForUser(user.ID, input.Status, input.Filters)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return

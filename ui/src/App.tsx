@@ -1,6 +1,6 @@
 import { RouterProvider } from '@tanstack/react-router'
 import { QueryClient } from '@tanstack/react-query'
-import { useAuth } from './AuthContext'
+import { useAuth } from './useAuth'
 import { router } from './router'
 
 interface AppProps {

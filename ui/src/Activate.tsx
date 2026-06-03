@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useSearch, Link } from '@tanstack/react-router'
 import { config } from './config'
 import { useToast } from './useToast'
-import { useAuth } from './AuthContext'
+import { useAuth } from './useAuth'
 
 const API_BASE = config.apiUrl
 

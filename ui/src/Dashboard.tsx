@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Ansi from 'ansi-to-react'
 import { config } from './config'
 import { useToast } from './useToast'
-import { useAuth } from './AuthContext'
+import { useAuth } from './useAuth'
 
 const AnsiComponent = ((Ansi as unknown) as { default?: typeof Ansi }).default || Ansi;
 
@@ -47,7 +47,7 @@ const WS_BASE = config.wsUrl
 export function Dashboard() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
-  const { user, token, logout } = useAuth()
+  const { user, token, isAnonymous, logout } = useAuth()
 
   // Initialize state from URL hash if present
   const [selectedId, setSelectedIdState] = useState<number | null>(() => {
@@ -232,8 +232,10 @@ export function Dashboard() {
           <div className="header-content">
             <h1>appa</h1>
             <div className="user-profile">
-              <span className="user-name" title={user?.email}>{user?.name}</span>
-              <button className="btn-logout" onClick={logout} title="Logout">
+              <span className="user-name" title={isAnonymous ? 'Guest user' : user?.email}>
+                {isAnonymous ? 'Guest' : user?.name}
+              </span>
+              <button className="btn-logout" onClick={logout} title={isAnonymous ? 'Exit guest mode' : 'Logout'}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
                 </svg>

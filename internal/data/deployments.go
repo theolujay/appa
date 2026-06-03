@@ -27,7 +27,7 @@ type DeploymentModel struct {
 
 type Deployment struct {
 	ID        int64   `json:"id"`
-	UserID    int64   `json:"user_id"`
+	UserID    *int64  `json:"user_id"`
 	Source    string  `json:"source"`
 	Status    string  `json:"status"`
 	ImageTag  *string `json:"image_tag"`
@@ -123,7 +123,7 @@ func (dm *DeploymentModel) Get(id int64) (*Deployment, error) {
 	return &d, nil
 }
 
-func (dm *DeploymentModel) GetAll(userID int64, status string, filters Filters) ([]*Deployment, Metadata, error) {
+func (dm *DeploymentModel) GetAllForUser(id int64, status string, filters Filters) ([]*Deployment, Metadata, error) {
 	totalRecords := 0
 	metadata := Metadata{}
 	deployments := []*Deployment{}
@@ -131,7 +131,7 @@ func (dm *DeploymentModel) GetAll(userID int64, status string, filters Filters) 
 	query := fmt.Sprintf(`
 		SELECT count(*) OVER(), id, user_id, source, status, image_tag, address, env_vars, url, created_at, version
         FROM deployments
-		WHERE (user_id = $1 OR $1 = 0)
+		WHERE (user_id = $1 OR ($1 = 0 AND user_id IS NULL))
 		AND (LOWER(status) = LOWER($2) OR $2 = '')
         ORDER BY %s %s, id ASC
 		LIMIT $3 OFFSET $4
@@ -140,7 +140,7 @@ func (dm *DeploymentModel) GetAll(userID int64, status string, filters Filters) 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	args := []any{userID, status, filters.limit(), filters.offset()}
+	args := []any{id, status, filters.limit(), filters.offset()}
 
 	rows, err := dm.DB.QueryContext(ctx, query, args...)
 	if err != nil {

@@ -5,7 +5,7 @@ import { Dashboard } from './Dashboard'
 import { Login } from './Login'
 import { Register } from './Register'
 import { Activate } from './Activate'
-import { useAuth } from './AuthContext'
+import { useAuth } from './useAuth'
 
 export interface MyRouterContext {
   queryClient: QueryClient
@@ -19,10 +19,10 @@ const indexRoute = createRoute({
   path: '/',
   beforeLoad: ({ context }) => {
     if (!context.auth) return
-    if (!context.auth.token) {
+    if (!context.auth.token && !context.auth.isAnonymous) {
       throw redirect({ to: '/login' })
     }
-    if (context.auth.user && !context.auth.user.activated) {
+    if (context.auth.token && context.auth.user && !context.auth.user.activated) {
       throw redirect({ to: '/activate' })
     }
   },
