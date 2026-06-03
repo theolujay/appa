@@ -33,7 +33,7 @@ services:
     networks:
       - "appa_net"
     ports:
-      - "5444:5432"
+      - "5432:5432"
     restart: unless-stopped
     volumes:
       - appa_db:/var/lib/postgresql
