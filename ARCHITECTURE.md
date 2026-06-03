@@ -501,6 +501,11 @@ SSH, Docker, or Ansible operations.
 *   **Ansible:** [Ansible Lockdown (Hardening)](https://github.com/ansible-lockdown) | [Security Hardening Guide](https://oneuptime.com/blog/post/2026-01-21-ansible-security-hardening/view) | [Jeff Geerling's Ansible 101](https://www.youtube.com/playlist?list=PL2_OBreMn7FqZkvMYt6ATmgC0KAGGJNAN) | [Ansible Vault Guide](https://docs.ansible.com/ansible/latest/vault_guide/index.html)
 *   **Mise:** [Getting Started](https://mise.jdx.dev/getting-started.html) | [Environments](https://mise.jdx.dev/environments)
 
+### CLI Development
+*   **urfave/cli:** [Official docs](https://cli.urfave.org/) | [v3 guide](https://cli.urfave.org/v3/) | [v3 migration guide](https://cli.urfave.org/migrate-v2-to-v3/)
+*   **Cobra:** [Official repository](https://github.com/spf13/cobra) | [Cobra docs](https://cobra.dev/) | [cobra-cli generator](https://github.com/spf13/cobra-cli)
+*   **Example CLIs:** [Railpack](https://github.com/railwayapp/railpack) | [Railway CLI](https://github.com/railwayapp/cli) | [GitHub CLI](https://github.com/cli/cli) | [flyctl](https://fly.io/docs/flyctl/) | [Pulumi CLI architecture](https://pulumi-developer-docs.readthedocs.io/latest/docs/architecture/README.html)
+
 ### DNS Automation
 *   **Cloudflare API:** [Create Subdomain](https://developers.cloudflare.com/dns/manage-dns-records/how-to/create-subdomain) | [Zones and DNS Records](https://developers.cloudflare.com/api/resources/zones/methods/create)
 *   **ACME:** [lego](https://github.com/go-acme/lego) — Go ACME client for native cert provisioning

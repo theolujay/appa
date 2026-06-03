@@ -110,6 +110,69 @@ make build/api  # Build the Go binary for host and linux/amd64
 └── go.mod
 ```
 
+## Planned CLI And Ansible Structure
+
+The CLI should be a thin command router and user-experience layer. Keep command
+definitions near the CLI entry point, but put reusable behavior in internal
+packages so it can be tested without invoking a terminal command.
+
+```text
+cmd/
+├── api/
+│   └── main.go
+└── cli/
+    └── main.go              # Builds the `appa` binary
+
+internal/
+├── cli/
+│   ├── app.go               # Root command construction and global options
+│   ├── commands/
+│   │   ├── instance.go      # `appa instance ...`
+│   │   ├── preflight.go     # `appa preflight <instance>`
+│   │   ├── setup.go         # `appa setup <instance>`
+│   │   ├── apply.go         # `appa apply <instance>`
+│   │   ├── status.go        # `appa status <instance>`
+│   │   └── logs.go          # `appa logs <instance> <service>`
+│   ├── config/              # Local instance profiles and redaction
+│   ├── ansible/             # Inventory generation and ansible-playbook runner
+│   ├── ssh/                 # SSH/preflight helpers
+│   └── output/              # Tables, prompts, progress, JSON output
+└── ...
+
+deploy/
+└── ansible/
+    ├── ansible.cfg
+    ├── requirements.yml
+    ├── playbooks/
+    │   ├── preflight.yml
+    │   ├── setup.yml
+    │   ├── apply.yml
+    │   ├── status.yml
+    │   └── upgrade.yml
+    ├── roles/
+    │   ├── appa_preflight/
+    │   ├── docker/
+    │   ├── appa_stack/
+    │   ├── caddy/
+    │   ├── firewall/
+    │   └── hardening/
+    ├── inventory/
+    │   └── README.md        # CLI-generated inventories are not committed
+    └── molecule/
+        └── appa_stack/
+```
+
+`cmd/cli/main.go` should only call into `internal/cli`. Command handlers should
+parse arguments, load the selected instance profile, call a service package, and
+render output. They should not contain SSH, YAML rendering, Ansible process
+management, or API client logic inline.
+
+`deploy/ansible/` should own every remote host mutation. The CLI may generate
+temporary inventory and variable files, but Ansible should install packages,
+write files, configure Caddy, manage firewall rules, and start Compose services.
+Commit playbooks, roles, templates, and Molecule scenarios; do not commit
+operator-generated inventories, secrets, or rendered `.env` files.
+
 ## Codebase Tour
 
 Start with `cmd/api/main.go` to understand how the server bootstraps, then follow a request through `cmd/api/routes.go` → the relevant handler → `internal/pipeline/` to see how a deployment is triggered end to end. `internal/hub/hub.go` is the WebSocket broadcast layer worth understanding early if you are touching anything log-related.
