@@ -1,0 +1,39 @@
+Vagrant.configure("2") do |config|
+    # Base box
+    config.vm.box = "bento/ubuntu-24.04"
+    # Pin to the latest stable version
+    config.vm.box_version = "202510.26.0"
+    config.vm.box_check_update = false
+    # Ubuntu cloud images can spend several minutes on first boot package and
+    # network initialization before SSH accepts connections.
+    config.vm.boot_timeout = 600
+    # Hostname inside the VM
+    config.vm.hostname = "nodejs.test"
+    # Keep first boot simple: Vagrant can provision over the NAT-forwarded SSH
+    # port. Enable the host-only adapter only when a fixed guest IP is needed.
+    if ENV["APPA_VAGRANT_PRIVATE_NETWORK"] == "1"
+        config.vm.network :private_network, ip: "192.168.56.55"
+    end
+    # Disable the default /vagrant synced folder (avoids Guest Additions issues)
+    config.vm.synced_folder ".", "/vagrant", disabled: true
+
+    config.vm.provider :virtualbox do |v|
+        v.memory = 1024
+        # v.cpus = 2
+        v.gui = ENV["APPA_VAGRANT_GUI"] == "1"
+        v.customize [
+            "modifyvm", :id,
+            "--uart1", "0x3F8", "4",
+            "--uartmode1", "file", File.expand_path("serial.log", __dir__),
+        ]
+    end
+    # Refresh apt cache: bento boxes ship with a stale snapshot
+    config.vm.provision "shell", inline: "apt-get update -y"
+    # Run Ansible after boot: Vagrant auto-generates the inventory
+    # NOTE: Requires ansible-playbook on the host PATH.
+    #       Activate the project venv first: source ../.venv/bin/activate
+    config.vm.provision :ansible do |ansible|
+        ansible.config_file = "../ansible.cfg"
+        ansible.playbook = "../playbooks/security-hardening.yml"
+    end
+end

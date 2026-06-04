@@ -1,0 +1,9 @@
+---
+ssh_port: 22
+ssh_allowed_users:
+  - "{{ ansible_user | default(ansible_facts.env.SUDO_USER | default('deploy')) }}"
+  - deploy
+allow_root_ssh_keys: false
+allow_password_auth: false
+allow_tcp_forwarding: false
+allow_agent_forwarding: false

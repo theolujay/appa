@@ -1,0 +1,17 @@
+---
+- name: Configure kernel security parameters
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+    sysctl_file: /etc/sysctl.d/99-security.conf
+  loop: "{{ kernel_security_params }}"
+
+- name: Disable unnecessary kernel modules
+  ansible.builtin.template:
+    src: disable-modules.conf.j2
+    dest: /etc/modprobe.d/disable-modules.conf
+    owner: root
+    group: root
+    mode: "0644"

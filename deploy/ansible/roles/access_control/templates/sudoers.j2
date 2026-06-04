@@ -1,0 +1,21 @@
+# Sudoers configuration - Managed by Ansible
+Defaults    env_reset
+Defaults    mail_badpass
+Defaults    secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Defaults    logfile="/var/log/sudo.log"
+Defaults    log_input, log_output
+Defaults    use_pty
+
+# Root access
+root    ALL=(ALL:ALL) ALL
+
+# Admin group with full sudo
+%sudo   ALL=(ALL:ALL) ALL
+
+# Deploy user for automation
+deploy  ALL=(ALL) NOPASSWD: /usr/bin/systemctl, /usr/bin/docker
+
+# Application-specific permissions
+{% for rule in sudo_rules | default([]) %}
+{{ rule.user }}  {{ rule.hosts | default('ALL') }}=({{ rule.runas | default('ALL') }}) {% if rule.nopasswd | default(false) %}NOPASSWD: {% endif %}{{ rule.commands | join(', ') }}
+{% endfor %}

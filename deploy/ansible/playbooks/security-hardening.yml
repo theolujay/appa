@@ -1,0 +1,39 @@
+---
+- name: Apply security hardening
+  hosts: all
+  become: true
+
+  vars:
+    ssh_port: 22
+    allow_root_ssh_keys: false
+    allow_password_auth: false
+    disable_ipv6: false
+
+  roles:
+    - role: kernel_hardening
+      tags: [kernel]
+
+    - role: access_control
+      tags: [access]
+
+    - role: ssh_hardening
+      tags: [ssh]
+
+    - role: firewall
+      tags: [firewall]
+
+    - role: audit
+      tags: [audit]
+
+  post_tasks:
+    - name: Reboot if required
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+      when: reboot_required | default(false)
+
+    - name: Verify services after hardening
+      ansible.builtin.service_facts:
+
+    - name: Report hardening complete
+      ansible.builtin.debug:
+        msg: "Security hardening applied to {{ ansible_facts.fqdn }}"

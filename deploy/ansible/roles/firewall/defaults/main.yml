@@ -1,0 +1,42 @@
+---
+firewall_backend: "{{ 'ufw' if ansible_facts.os_family == 'Debian' else 'firewalld' }}"
+firewall_default_zone: drop
+
+ufw_rules:
+  - port: "{{ ssh_port | default(22) }}"
+    proto: tcp
+    rule: allow
+    comment: Allow SSH
+  - port: "80"
+    proto: tcp
+    rule: allow
+    comment: Allow HTTP
+  - port: "443"
+    proto: tcp
+    rule: allow
+    comment: Allow HTTPS
+
+firewall_rules:
+  - zone: public
+    service: ssh
+  - zone: public
+    port: "80/tcp"
+  - zone: public
+    port: "443/tcp"
+
+iptables_rules:
+  - chain: INPUT
+    protocol: tcp
+    port: "22"
+    action: ACCEPT
+    comment: Allow SSH
+  - chain: INPUT
+    protocol: tcp
+    port: "80"
+    action: ACCEPT
+    comment: Allow HTTP
+  - chain: INPUT
+    protocol: tcp
+    port: "443"
+    action: ACCEPT
+    comment: Allow HTTPS

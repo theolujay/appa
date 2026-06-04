@@ -1,0 +1,6 @@
+# Managed by Ansible
+
+{% for module in disabled_kernel_modules %}
+install {{ module }} /bin/false
+blacklist {{ module }}
+{% endfor %}

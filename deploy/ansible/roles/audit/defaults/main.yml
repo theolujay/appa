@@ -1,0 +1,8 @@
+---
+audit_log_file: /var/log/audit/audit.log
+audit_max_log_file: 64
+audit_num_logs: 10
+audit_space_left_action: email
+audit_admin_space_left_action: halt
+audit_disk_full_action: halt
+audit_disk_error_action: halt

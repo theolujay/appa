@@ -47,6 +47,43 @@ db/migrations/up: confirm
 	@migrate -path ./migrations -database ${APPA_DB_DSN} up
 
 # ==================================================================================== #
+# VAGRANT / ANSIBLE (infrastructure)
+# ==================================================================================== #
+
+VAGRANT_DIR = deploy/ansible/dev
+VENV_BIN    = $(CURDIR)/deploy/ansible/.venv/bin
+
+## vagrant/up: create and start the dev VM (activate venv first, then vagrant)
+.PHONY: vagrant/up
+vagrant/up:
+	cd $(VAGRANT_DIR) && PATH="$(VENV_BIN):$$PATH" vagrant up
+
+## vagrant/destroy: destroy the dev VM
+.PHONY: vagrant/destroy
+vagrant/destroy:
+	cd $(VAGRANT_DIR) && PATH="$(VENV_BIN):$$PATH" vagrant destroy -f
+
+## vagrant/reload: reboot and re-provision the dev VM
+.PHONY: vagrant/reload
+vagrant/reload:
+	cd $(VAGRANT_DIR) && PATH="$(VENV_BIN):$$PATH" vagrant reload --provision
+
+## vagrant/ssh: SSH into the dev VM
+.PHONY: vagrant/ssh
+vagrant/ssh:
+	cd $(VAGRANT_DIR) && vagrant ssh
+
+## vagrant/status: show VM status
+.PHONY: vagrant/status
+vagrant/status:
+	cd $(VAGRANT_DIR) && vagrant status
+
+## ansible/lint: run ansible-lint on all Ansible files
+.PHONY: ansible/lint
+ansible/lint:
+	PATH="$(VENV_BIN):$$PATH" ansible-lint $(ARGS)
+
+# ==================================================================================== #
 # QUALITY CONTROL
 # ==================================================================================== #
 

@@ -1,0 +1,88 @@
+---
+- name: Install ufw
+  ansible.builtin.package:
+    name: ufw
+    state: present
+  when: firewall_backend == 'ufw'
+
+- name: Set ufw incoming policy
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+  when: firewall_backend == 'ufw'
+
+- name: Set ufw outgoing policy
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
+  when: firewall_backend == 'ufw'
+
+- name: Configure ufw allow rules
+  community.general.ufw:
+    rule: "{{ item.rule | default('allow') }}"
+    port: "{{ item.port | string }}"
+    proto: "{{ item.proto | default('tcp') }}"
+    from_ip: "{{ item.source | default('any') }}"
+    comment: "{{ item.comment | default(omit) }}"
+  loop: "{{ ufw_rules }}"
+  when: firewall_backend == 'ufw'
+
+- name: Enable ufw
+  community.general.ufw:
+    state: enabled
+  when: firewall_backend == 'ufw'
+
+- name: Install firewalld
+  ansible.builtin.package:
+    name: firewalld
+    state: present
+  when: firewall_backend == 'firewalld'
+
+- name: Start and enable firewalld
+  ansible.builtin.service:
+    name: firewalld
+    state: started
+    enabled: true
+  when: firewall_backend == 'firewalld'
+
+- name: Configure firewall zones
+  ansible.posix.firewalld:
+    zone: "{{ item.zone }}"
+    source: "{{ item.source | default(omit) }}"
+    service: "{{ item.service | default(omit) }}"
+    port: "{{ item.port | default(omit) }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ firewall_rules }}"
+  when: firewall_backend == 'firewalld'
+
+- name: Check default firewalld zone
+  ansible.builtin.command: firewall-cmd --get-default-zone
+  register: firewall_current_default_zone
+  changed_when: false
+  when: firewall_backend == 'firewalld'
+
+- name: Set default zone
+  ansible.builtin.command: firewall-cmd --set-default-zone={{ firewall_default_zone }}
+  changed_when: true
+  when:
+    - firewall_backend == 'firewalld'
+    - firewall_current_default_zone.stdout != firewall_default_zone
+
+# iptables alternative
+- name: Configure iptables rules
+  ansible.builtin.iptables:
+    chain: "{{ item.chain }}"
+    protocol: "{{ item.protocol | default('tcp') }}"
+    destination_port: "{{ item.port | default(omit) }}"
+    source: "{{ item.source | default(omit) }}"
+    jump: "{{ item.action }}"
+    comment: "{{ item.comment | default(omit) }}"
+  loop: "{{ iptables_rules }}"
+  when: firewall_backend == 'iptables'
+
+- name: Save iptables rules
+  ansible.builtin.command: iptables-save -f /etc/iptables/rules.v4
+  changed_when: true
+  when: firewall_backend == 'iptables'
