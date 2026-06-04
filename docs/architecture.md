@@ -9,7 +9,7 @@ single-node platform runtime.
 
 This document is the technical architecture reference. Setup instructions and
 contribution guidelines live in [CONTRIBUTING.md](./CONTRIBUTING.md). Delivery
-phases and future work live in [ROADMAP.md](./ROADMAP.md).
+phases and future work live in [ROADMAP.md](./roadmap.md).
 
 ## Architectural Questions
 
@@ -433,7 +433,7 @@ deploys and manages user applications inside the platform.
 - Deployment ZIP extraction must preserve per-upload isolation and should reject
   unsafe archive paths before production use.
 - MVP deployment targets single-node Docker Compose. Orchestration evolution is
-  tracked in [ROADMAP.md](./ROADMAP.md).
+  tracked in [ROADMAP.md](./roadmap.md).
 
 ## Repository Structure
 
@@ -457,8 +457,8 @@ deploys and manages user applications inside the platform.
 ├── migrations/        # Ordered SQL migrations (up and down)
 ├── scripts/           # Utility scripts (database initialization)
 ├── ui/                # React dashboard (TanStack Router + Query)
-├── ARCHITECTURE.md    # This document
-├── ROADMAP.md         # Delivery phases and future evolution
+├── docs/architecture.md    # This document
+├── docs/roadmap.md         # Delivery phases and future evolution
 ├── CONTRIBUTING.md    # Setup, API reference, and contribution guidelines
 ├── Caddyfile          # Reverse proxy and routing configuration
 ├── Dockerfile         # Multi-stage build for the Go API and its dependencies
@@ -470,7 +470,7 @@ deploys and manages user applications inside the platform.
 
 **DNS Provider Coupling**
 
-The v1 implementation is optimized for **Cloudflare**. While the architecture supports other providers via different `caddy-dns` plugins, Cloudflare remains the default for the "zero-config" experience. Provider abstraction is tracked in [ROADMAP.md](./ROADMAP.md).
+The v1 implementation is optimized for **Cloudflare**. While the architecture supports other providers via different `caddy-dns` plugins, Cloudflare remains the default for the "zero-config" experience. Provider abstraction is tracked in [ROADMAP.md](./roadmap.md).
 
 **Railpack CLI and Frontend Version Coupling**
 
@@ -480,7 +480,7 @@ The Railpack CLI (installed in the API container at build time) and the Railpack
 
 Appa currently leverages standard **Docker Compose** to fulfill its promise of a "single-command" setup for single-node environments. While Compose provides the simplicity required for v1, it is fundamentally a development tool that lacks advanced production orchestration features such as health-based service restarts, zero-downtime updates, and multi-node scaling.
 
-The architectural constraint is that deployment and routing code should not assume Compose is the only possible service backend. The evolution path is tracked in [ROADMAP.md](./ROADMAP.md).
+The architectural constraint is that deployment and routing code should not assume Compose is the only possible service backend. The evolution path is tracked in [ROADMAP.md](./roadmap.md).
 
 **CLI Scope**
 

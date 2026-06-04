@@ -31,7 +31,7 @@ Open [http://localhost](http://localhost). For environment setup, available
 commands, and API routes, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Documentation
+- [Architecture](docs/architecture.md)
 
-- [Architecture](ARCHITECTURE.md)
-- [Roadmap](ROADMAP.md)
+- [Roadmap](docs/roadmap.md)
 - [Contributing](CONTRIBUTING.md)

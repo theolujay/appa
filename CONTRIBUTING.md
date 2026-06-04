@@ -182,7 +182,7 @@ instance-profile handling, then follow the Ansible invocation path under
 `deploy/ansible/`. Do not duplicate the deployment pipeline in the CLI; project
 deployments should call the Appa Server API.
 
-For the full architecture design and design decisions, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+For the full architecture design and design decisions, see [`ARCHITECTURE.md`](./docs/architecture.md).
 
 ## API Reference
 

@@ -1,7 +1,7 @@
 # Appa Roadmap
 
 This roadmap tracks delivery phases and future evolution. Architecture constraints
-and system design decisions live in [ARCHITECTURE.md](./ARCHITECTURE.md).
+and system design decisions live in [ARCHITECTURE.md](./architecture.md).
 
 ## MVP
 
