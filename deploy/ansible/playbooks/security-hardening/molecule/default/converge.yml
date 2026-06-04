@@ -1,0 +1,41 @@
+---
+- name: Converge
+  hosts: all
+  gather_facts: true
+  ignore_errors: true
+  vars:
+    disable_ipv6: false
+  pre_tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+    - name: Install openssh-server for SSH roles
+      ansible.builtin.apt:
+        name: openssh-server
+        state: present
+    - name: Create /run/sshd for sshd -t
+      ansible.builtin.file:
+        path: /run/sshd
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+    - name: Ensure modprobe.d directory exists
+      ansible.builtin.file:
+        path: /etc/modprobe.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+  roles:
+    - role: kernel_hardening
+      tags: [kernel]
+    - role: access_control
+      tags: [access]
+    - role: ssh_hardening
+      tags: [ssh]
+    - role: firewall
+      tags: [firewall]
+    - role: audit
+      tags: [audit]

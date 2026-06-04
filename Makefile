@@ -83,6 +83,30 @@ vagrant/status:
 ansible/lint:
 	PATH="$(VENV_BIN):$$PATH" ansible-lint $(ARGS)
 
+ANSIBLE_DIR = deploy/ansible
+ROLES       = kernel_hardening access_control ssh_hardening firewall audit
+
+## ansible/molecule/role: run molecule on a role (ROLE=<name>, CMD=<command>)
+.PHONY: ansible/molecule/role
+ansible/molecule/role:
+	@if [ -z "$(ROLE)" ]; then echo "Usage: make ansible/molecule/role ROLE=<name> [CMD=test]"; exit 1; fi
+	@cd $(ANSIBLE_DIR)/roles/$(ROLE) && PATH="$(VENV_BIN):$$PATH" molecule $(CMD)
+
+## ansible/molecule/playbook: run molecule on the playbook scenario (CMD=<command>)
+.PHONY: ansible/molecule/playbook
+ansible/molecule/playbook:
+	@cd $(ANSIBLE_DIR)/playbooks/security-hardening && PATH="$(VENV_BIN):$$PATH" molecule $(CMD)
+
+## ansible/molecule/test/all: run full molecule test on all roles and playbook
+.PHONY: ansible/molecule/test/all
+ansible/molecule/test/all:
+	@for role in $(ROLES); do \
+		echo "=== Testing role: $$role ==="; \
+		cd $(ANSIBLE_DIR)/roles/$$role && PATH="$(VENV_BIN):$$PATH" molecule test || exit 1; \
+	done
+	@echo "=== Testing playbook: security-hardening ==="; \
+	cd $(ANSIBLE_DIR)/playbooks/security-hardening && PATH="$(VENV_BIN):$$PATH" molecule test
+
 # ==================================================================================== #
 # QUALITY CONTROL
 # ==================================================================================== #

@@ -1,0 +1,37 @@
+---
+- name: Verify kernel hardening
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Check sysctl config file exists
+      ansible.builtin.stat:
+        path: /etc/sysctl.d/99-security.conf
+      register: sysctl_conf
+
+    - name: Assert sysctl config was written
+      ansible.builtin.assert:
+        that:
+          - sysctl_conf.stat.exists
+        success_msg: "Sysctl security config is in place"
+
+    - name: Verify a specific kernel param was set
+      ansible.builtin.command: sysctl -n net.ipv4.tcp_syncookies
+      register: syncookies
+      changed_when: false
+
+    - name: Assert tcp_syncookies is enabled
+      ansible.builtin.assert:
+        that:
+          - syncookies.stdout == "1"
+        success_msg: "net.ipv4.tcp_syncookies is enabled"
+
+    - name: Check disabled modules config
+      ansible.builtin.stat:
+        path: /etc/modprobe.d/disable-modules.conf
+      register: modules_conf
+
+    - name: Assert module blacklist exists
+      ansible.builtin.assert:
+        that:
+          - modules_conf.stat.exists
+        success_msg: "Disabled kernel modules config exists"

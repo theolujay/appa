@@ -1,0 +1,17 @@
+---
+- name: Converge
+  hosts: all
+  gather_facts: true
+  pre_tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+    - name: Install openssh-server for sshd_config
+      ansible.builtin.apt:
+        name: openssh-server
+        state: present
+  tasks:
+    - name: Apply access_control role
+      ansible.builtin.include_role:
+        name: access_control

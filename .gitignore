@@ -50,3 +50,10 @@ default:
 
 # Ansible virtual environment
 deploy/ansible/.venv/
+
+# Ansible runtime cache (collections, modules, roles downloaded at runtime)
+deploy/ansible/.ansible/
+
+# Molecule auto-generated role symlinks (created by molecule prerun or manually)
+deploy/ansible/roles/*/molecule/*/roles/
+deploy/ansible/playbooks/*/molecule/*/roles/

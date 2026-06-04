@@ -1,0 +1,38 @@
+---
+- name: Verify firewall rules
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Check ufw is active
+      ansible.builtin.command: ufw status
+      register: ufw_status
+      changed_when: false
+
+    - name: Assert ufw is enabled
+      ansible.builtin.assert:
+        that:
+          - "'Status: active' in ufw_status.stdout"
+        success_msg: "UFW is active"
+
+    - name: Check SSH allow rule
+      ansible.builtin.command: ufw status verbose
+      register: ufw_verbose
+      changed_when: false
+
+    - name: Assert SSH port is allowed
+      ansible.builtin.assert:
+        that:
+          - "'22/tcp' in ufw_verbose.stdout"
+        success_msg: "SSH port 22 is allowed"
+
+    - name: Assert HTTP port is allowed
+      ansible.builtin.assert:
+        that:
+          - "'80/tcp' in ufw_verbose.stdout"
+        success_msg: "HTTP port 80 is allowed"
+
+    - name: Assert HTTPS port is allowed
+      ansible.builtin.assert:
+        that:
+          - "'443/tcp' in ufw_verbose.stdout"
+        success_msg: "HTTPS port 443 is allowed"

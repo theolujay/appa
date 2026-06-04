@@ -1,0 +1,23 @@
+---
+- name: Converge
+  hosts: all
+  gather_facts: true
+  pre_tasks:
+    - name: Install openssh-server so the role has something to harden
+      ansible.builtin.apt:
+        name: openssh-server
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create sshd runtime directory (required for sshd -t validation)
+      ansible.builtin.file:
+        path: /run/sshd
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+  tasks:
+    - name: Apply ssh_hardening role
+      ansible.builtin.include_role:
+        name: ssh_hardening

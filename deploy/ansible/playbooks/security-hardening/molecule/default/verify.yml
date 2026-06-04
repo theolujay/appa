@@ -1,0 +1,49 @@
+---
+- name: Verify security hardening
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Check sysctl config file exists
+      ansible.builtin.stat:
+        path: /etc/sysctl.d/99-security.conf
+      register: sysctl_conf
+    - name: Assert sysctl security config
+      ansible.builtin.assert:
+        that: sysctl_conf.stat.exists
+        success_msg: "Sysctl security config is in place"
+
+    - name: Check sshd_config exists
+      ansible.builtin.stat:
+        path: /etc/ssh/sshd_config
+      register: sshd_config
+    - name: Assert sshd is configured
+      ansible.builtin.assert:
+        that: sshd_config.stat.exists
+        success_msg: "SSH daemon is configured"
+
+    - name: Check ufw is active
+      ansible.builtin.command: ufw status
+      register: ufw_status
+      changed_when: false
+    - name: Assert ufw is enabled
+      ansible.builtin.assert:
+        that: "'Status: active' in ufw_status.stdout"
+        success_msg: "UFW is active"
+
+    - name: Check audit rules file exists
+      ansible.builtin.stat:
+        path: /etc/audit/rules.d/hardening.rules
+      register: audit_rules
+    - name: Assert audit hardening rules
+      ansible.builtin.assert:
+        that: audit_rules.stat.exists
+        success_msg: "Audit hardening rules are in place"
+
+    - name: Check sudoers file exists
+      ansible.builtin.stat:
+        path: /etc/sudoers.d/ansible-managed
+      register: sudoers_file
+    - name: Assert sudoers was configured
+      ansible.builtin.assert:
+        that: sudoers_file.stat.exists
+        success_msg: "Managed sudoers file is in place"

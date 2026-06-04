@@ -1,0 +1,17 @@
+---
+galaxy_info:
+  author: theolujay
+  description: Auditd configuration for Appa-managed hosts
+  license: MIT
+  min_ansible_version: "2.18"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - all
+  galaxy_tags:
+    - audit
+    - security
+    - hardening
+    - auditd
+
+dependencies: []

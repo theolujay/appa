@@ -4,9 +4,14 @@
     name: "{{ item.key }}"
     value: "{{ item.value }}"
     state: present
-    reload: true
+    reload: false
     sysctl_file: /etc/sysctl.d/99-security.conf
   loop: "{{ kernel_security_params }}"
+
+- name: Reload sysctl from file
+  ansible.builtin.command:
+    cmd: sysctl -p /etc/sysctl.d/99-security.conf
+  changed_when: false
 
 - name: Disable unnecessary kernel modules
   ansible.builtin.template:

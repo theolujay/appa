@@ -1,0 +1,52 @@
+---
+- name: Verify SSH hardening
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Check sshd_config for restricted root login
+      ansible.builtin.shell:
+        cmd: set -o pipefail && sshd -T | grep -E '^permitrootlogin'
+        executable: /bin/bash
+      register: permit_root
+      changed_when: false
+
+    - name: Assert root login is properly restricted
+      ansible.builtin.assert:
+        that:
+          - "'permitrootlogin no' in permit_root.stdout"
+        success_msg: "Root login is disabled"
+
+    - name: Check password authentication is disabled
+      ansible.builtin.shell:
+        cmd: set -o pipefail && sshd -T | grep -E '^passwordauthentication'
+        executable: /bin/bash
+      register: password_auth
+      changed_when: false
+
+    - name: Assert password auth is disabled
+      ansible.builtin.assert:
+        that:
+          - "'passwordauthentication no' in password_auth.stdout"
+        success_msg: "Password authentication disabled"
+
+    - name: Check SSH banner exists
+      ansible.builtin.stat:
+        path: /etc/ssh/banner
+      register: banner_file
+
+    - name: Assert banner is in place
+      ansible.builtin.assert:
+        that:
+          - banner_file.stat.exists
+        success_msg: "SSH banner is present"
+
+    - name: Check weak host key was removed
+      ansible.builtin.stat:
+        path: /etc/ssh/ssh_host_dsa_key
+      register: dsa_key
+
+    - name: Assert DSA key was removed
+      ansible.builtin.assert:
+        that:
+          - not dsa_key.stat.exists
+        success_msg: "Weak DSA host key removed"

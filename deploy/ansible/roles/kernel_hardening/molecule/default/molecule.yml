@@ -1,0 +1,17 @@
+---
+dependency:
+  name: galaxy
+
+driver:
+  name: docker
+
+platforms:
+  - name: kernel-hardening-instance
+    image: geerlingguy/docker-ubuntu2404-ansible:latest
+    pre_build_image: true
+
+provisioner:
+  name: ansible
+  playbooks:
+    converge: converge.yml
+    verify: verify.yml
