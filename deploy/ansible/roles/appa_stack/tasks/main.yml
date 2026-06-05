@@ -3,7 +3,7 @@
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
-    mode: '0755'
+    mode: "0755"
   loop:
     - "{{ appa_stack_dir }}"
     - "{{ appa_stack_dir }}/data/postgres"
@@ -29,7 +29,7 @@
   ansible.builtin.copy:
     content: "{{ pg_password_gen.stdout }}"
     dest: "{{ appa_stack_dir }}/.pg_password"
-    mode: '0600'
+    mode: "0600"
   when: not pg_password_file.stat.exists
 
 - name: Read PostgreSQL password
@@ -45,26 +45,26 @@
   ansible.builtin.template:
     src: env.j2
     dest: "{{ appa_stack_dir }}/.env"
-    mode: '0600'
+    mode: "0600"
   no_log: true
 
 - name: Render compose.yml
   ansible.builtin.template:
     src: compose.yml.j2
     dest: "{{ appa_stack_dir }}/compose.yml"
-    mode: '0644'
+    mode: "0644"
 
 - name: Render Caddyfile
   ansible.builtin.template:
     src: Caddyfile.j2
     dest: "{{ appa_stack_dir }}/Caddyfile"
-    mode: '0644'
+    mode: "0644"
 
 - name: Render entrypoint.sh
   ansible.builtin.template:
     src: entrypoint.sh.j2
     dest: "{{ appa_stack_dir }}/scripts/entrypoint.sh"
-    mode: '0755'
+    mode: "0755"
 
 - name: Start the Appa Stack
   ansible.builtin.command:

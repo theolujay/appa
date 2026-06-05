@@ -6,7 +6,6 @@ security_groups:
 sudo_rules: []
 inactive_users: []
 unauthorized_users: []
-
 password_max_days: 90
 password_min_days: 1
 password_warn_age: 7

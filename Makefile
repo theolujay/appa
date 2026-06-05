@@ -107,10 +107,10 @@ ansible/molecule/playbook:
 ansible/molecule/test/all:
 	@for role in $(ROLES); do \
 		echo "=== Testing role: $$role ==="; \
-		cd $(ANSIBLE_DIR)/roles/$$role && PATH="$(VENV_BIN):$$PATH" molecule test || exit 1; \
+		cd $(CURDIR)/$(ANSIBLE_DIR)/roles/$$role && PATH="$(VENV_BIN):$$PATH" molecule test || exit 1; \
 	done
 	@echo "=== Testing playbook: security-hardening ==="; \
-	cd $(ANSIBLE_DIR)/playbooks/security-hardening && PATH="$(VENV_BIN):$$PATH" molecule test
+	cd $(CURDIR)/$(ANSIBLE_DIR)/playbooks/security-hardening && PATH="$(VENV_BIN):$$PATH" molecule test
 
 # ==================================================================================== #
 # QUALITY CONTROL

@@ -13,8 +13,8 @@
       ansible.builtin.include_role:
         name: audit
     - name: Ensure auditd is registered for service_facts
-      ansible.builtin.command:
-        cmd: systemctl show auditd.service --property=LoadState
+      ansible.builtin.systemd:
+        name: auditd.service
       changed_when: false
-      register: auditd_load
-      failed_when: auditd_load.rc != 0 and 'unit not found' not in auditd_load.stderr
+      register: auditd_state
+      failed_when: false

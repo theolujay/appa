@@ -4,9 +4,11 @@
     name: auditd
     state: restarted
   listen: restart auditd
+  when: ansible_facts['virtualization_type'] not in ['docker', 'container', 'containerd']
 
 - name: Reload audit rules
   ansible.builtin.command: augenrules --load
   register: auditd_load
   changed_when: true
   failed_when: auditd_load.rc != 0 and 'No change' not in auditd_load.stdout
+  when: ansible_facts['virtualization_type'] not in ['docker', 'container', 'containerd']
