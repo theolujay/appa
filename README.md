@@ -13,6 +13,9 @@ managing routing by hand.
 - Stream build and runtime logs over WebSocket.
 - Route each deployment through Caddy.
 - Restore routes for running deployments after restarts.
+- **CLI** (`appa`) for remote instance management, provisioning, and operations.
+- **Ansible** playbooks for security hardening and server setup, tested with
+  Molecule.
 
 ## Stack
 
@@ -30,8 +33,20 @@ docker compose up --build -d
 Open [http://localhost](http://localhost). For environment setup, available
 commands, and API routes, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Documentation
-- [Architecture](docs/architecture.md)
+## CLI Quick Start
 
+```bash
+make build/cli
+./bin/appa instance init my-server
+./bin/appa instance set-host my-server root@203.0.113.10
+./bin/appa preflight my-server
+./bin/appa setup my-server
+```
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
 - [Contributing](CONTRIBUTING.md)
+- [Ansible Reference](docs/ansible.md)
+- [Deploy Stack Plan](docs/DEPLOY_STACK.md)
