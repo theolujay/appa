@@ -111,12 +111,12 @@ func setupFunc(args []string, force bool, tags, skipTags string) error {
 	}
 
 	extraVars := map[string]any{
-		"appa_domain":      p.Domain,
-		"cloudflare_token": p.CloudflareToken,
-		"smtp_host":        p.SMTPHost,
-		"smtp_port":        p.SMTPPort,
-		"smtp_username":    p.SMTPUsername,
-		"smtp_password":    p.SMTPPassword,
+		"appa_instance_domain": p.Domain,
+		"cloudflare_token":     p.CloudflareToken,
+		"smtp_host":            p.SMTPHost,
+		"smtp_port":            p.SMTPPort,
+		"smtp_username":        p.SMTPUsername,
+		"smtp_password":        p.SMTPPassword,
 	}
 
 	playbook := ansible.Playbook{
@@ -195,12 +195,12 @@ func applyFunc(args []string, tags, skipTags string) error {
 	}
 
 	extraVars := map[string]any{
-		"appa_domain":      p.Domain,
-		"cloudflare_token": p.CloudflareToken,
-		"smtp_host":        p.SMTPHost,
-		"smtp_port":        p.SMTPPort,
-		"smtp_username":    p.SMTPUsername,
-		"smtp_password":    p.SMTPPassword,
+		"appa_instance_domain": p.Domain,
+		"cloudflare_token":     p.CloudflareToken,
+		"smtp_host":            p.SMTPHost,
+		"smtp_port":            p.SMTPPort,
+		"smtp_username":        p.SMTPUsername,
+		"smtp_password":        p.SMTPPassword,
 	}
 
 	playbook := ansible.Playbook{

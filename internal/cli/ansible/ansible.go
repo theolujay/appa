@@ -62,19 +62,26 @@ func AnsibleDir() string {
 	return filepath.Join("deploy", "ansible")
 }
 
+// ensureDeps installs external roles from requirements.yml if they're missing.
+func ensureDeps() error {
+	reqPath := filepath.Join(AnsibleDir(), "requirements.yml")
+	if _, err := os.Stat(reqPath); os.IsNotExist(err) {
+		return nil
+	}
+	cmd := exec.Command("ansible-galaxy", "role", "install", "-r", "requirements.yml")
+	cmd.Dir = AnsibleDir()
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // RunPlaybook executes an Ansible playbook using the system's ansible-playbook command.
 // It passes inventory, extra variables, and optional tags to control the execution flow.
 // Output is streamed directly to standard output and error.
-//
-// Example output:
-//
-//	`
-//	PLAY [Deploy Appa Stack] ******************************************************
-//	TASK [Gathering Facts] ********************************************************
-//	ok: [203.0.113.10]
-//	...
-//	`
 func RunPlaybook(p Playbook) error {
+	if err := ensureDeps(); err != nil {
+		return fmt.Errorf("install galaxy deps: %w", err)
+	}
 	args := []string{
 		"-i",
 		p.InventoryPath,

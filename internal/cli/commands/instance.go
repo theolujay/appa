@@ -2,6 +2,9 @@ package commands
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -9,6 +12,29 @@ import (
 	"github.com/theolujay/appa/internal/cli/output"
 	"github.com/theolujay/appa/internal/cli/ssh"
 )
+
+var GUI_EDITORS = map[string]string{
+	// Needs --wait
+	"code":          "--wait",
+	"code-insiders": "--wait",
+	"cursor":        "--wait",
+	"zed":           "--wait",
+	"atom":          "--wait",
+	"pulsar":        "--wait",
+	"bbedit":        "--wait",
+	"coteditor":     "--wait",
+	"mousepad":      "--wait",
+	"geany":         "--wait",
+	"notepadqq":     "--wait",
+	// Needs -w
+	"subl":              "-w",
+	"sublime_text":      "-w",
+	"gedit":             "-w",
+	"gnome-text-editor": "-w",
+	"mate":              "-w",
+	// Needs -f
+	"gvim": "-f",
+}
 
 // InstanceCmd returns the root command for managing Appa instance profiles.
 func InstanceCmd() *cobra.Command {
@@ -18,6 +44,7 @@ func InstanceCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(instanceInitCmd())
+	cmd.AddCommand(instanceEditCmd())
 	cmd.AddCommand(instanceSetHostCmd())
 	cmd.AddCommand(instanceListCmd())
 
@@ -30,6 +57,19 @@ func instanceInitCmd() *cobra.Command {
 		Short: "Create a new instance profile",
 		Args:  cobra.ExactArgs(1),
 		RunE:  initFunc,
+	}
+}
+
+func instanceEditCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "edit <name>",
+		Short: "Edit instance profile in $EDITOR",
+		Long: `Opens the instance profile in the system editor for direct TOML editing.
+
+The editor is chosen from $APPA_EDITOR, $EDITOR, or defaults to "vi".
+After saving, the file is validated. If invalid, you can re-edit or abort.`,
+		Args: cobra.ExactArgs(1),
+		RunE: editFunc,
 	}
 }
 
@@ -69,6 +109,79 @@ func initFunc(_ *cobra.Command, args []string) error {
 	output.Success("Instance profile %q created", name)
 	output.Success("  Next: appa instance set-host %s user@host", name)
 	return nil
+}
+
+func editFunc(_ *cobra.Command, args []string) error {
+	name := args[0]
+	if !config.Exists(name) {
+		return fmt.Errorf("profile %q not found", name)
+	}
+
+	originalProfile, err := config.Load(name)
+	if err != nil {
+		profilePath := config.ProfilePath(name)
+		return fmt.Errorf(
+			"failed to load profile for editing: %w\n\nPath: %s\n",
+			err,
+			profilePath,
+		)
+	}
+
+	editor := os.Getenv("APPA_EDITOR")
+	if editor == "" {
+		editor = os.Getenv("EDITOR")
+	}
+	if editor == "" {
+		editor = "vim"
+	}
+
+	parts := strings.Fields(editor)
+	editorBin := parts[0]
+	editorArgs := parts[1:]
+
+	waitFlag, ok := GUI_EDITORS[editorBin]
+	if ok && !slices.Contains(editorArgs, waitFlag) {
+		editorArgs = append(editorArgs, waitFlag)
+	}
+
+	editorPath, err := exec.LookPath(editorBin)
+	if err != nil {
+		return fmt.Errorf("editor %q not found on PATH", editor)
+	}
+
+	path := config.ProfilePath(name)
+	output.Section("Waiting for your editor to close %q config file...", name)
+
+	var currentProfile config.Profile
+	for {
+		cmd := exec.Command(editorPath, append(editorArgs, path)...)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		if editorErr := cmd.Run(); editorErr != nil {
+			return fmt.Errorf("editor exited abnormally: %w", editorErr)
+		}
+
+		currentProfile, err = config.Load(name)
+		if err != nil {
+			if revertErr := config.Save(originalProfile); revertErr != nil {
+				return fmt.Errorf("failed to revert to original profile: %w", revertErr)
+			}
+			output.Error("invalid configuration: %v\n", err)
+			fmt.Printf("Re-edit? [Y/n] ")
+			var reply string
+			fmt.Scanln(&reply)
+			if reply == "n" || reply == "N" {
+				return fmt.Errorf("Edit aborted. Profile reverted to previous valid state")
+			}
+			continue
+		}
+
+		originalProfile = currentProfile
+		output.Success("Profile %q updated", name)
+		return nil
+	}
 }
 
 func setHostFunc(args []string, identityFile string) error {

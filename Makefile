@@ -83,6 +83,11 @@ vagrant/status:
 ansible/lint:
 	PATH="$(VENV_BIN):$$PATH" ansible-lint $(ARGS)
 
+## ansible/galaxy/install: install external roles from requirements.yml
+.PHONY: ansible/galaxy/install
+ansible/galaxy/install:
+	cd $(ANSIBLE_DIR) && PATH="$(VENV_BIN):$$PATH" ansible-galaxy role install -r requirements.yml
+
 ANSIBLE_DIR = deploy/ansible
 ROLES       = kernel_hardening access_control ssh_hardening firewall audit
 

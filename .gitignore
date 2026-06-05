@@ -54,6 +54,9 @@ deploy/ansible/.venv/
 # Ansible runtime cache (collections, modules, roles downloaded at runtime)
 deploy/ansible/.ansible/
 
+# External Galaxy roles — managed by requirements.yml
+deploy/ansible/roles/geerlingguy.docker/
+
 # Molecule auto-generated role symlinks (created by molecule prerun or manually)
 deploy/ansible/roles/*/molecule/*/roles/
 deploy/ansible/playbooks/*/molecule/*/roles/

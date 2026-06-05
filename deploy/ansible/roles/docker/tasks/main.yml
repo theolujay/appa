@@ -1,0 +1,8 @@
+---
+- name: Include geerlingguy.docker
+  ansible.builtin.include_role:
+    name: geerlingguy.docker
+
+- name: Verify Docker is operational
+  ansible.builtin.command: docker info
+  changed_when: false
