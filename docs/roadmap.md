@@ -72,25 +72,6 @@ and system design decisions live in [ARCHITECTURE.md](./architecture.md).
 
 ## Future Evolution
 
-### Installer and Host Provisioning
-
-Appa's default installation path should start on the operator's machine:
-`appa.dev/install.sh` installs the Appa CLI, then the CLI provisions the remote
-VPS. `appa setup <instance>` should prepare an Ubuntu VPS, write the required
-environment, start the Appa Stack, and print the operator's access URL.
-
-The CLI should allow progressive configuration. The operator should be able to
-create an instance profile with only an SSH target, run preflight checks, and add
-domain, DNS, SMTP, backup, and monitoring settings as they become available.
-
-### Deploy Stack Playbook
-
-The `deploy-stack.yml` playbook is the remaining missing piece. It will prepare
-the VPS with Docker, render the Appa Stack environment and Compose file, and
-start the platform services. The plan is documented in
-[DEPLOY_STACK.md](./DEPLOY_STACK.md). After implementation, `appa setup <name>`
-will run both `security-hardening.yml` and `deploy-stack.yml` end to end.
-
 ### DNS Provider Abstraction
 
 The first production target is Cloudflare because it gives Appa a practical

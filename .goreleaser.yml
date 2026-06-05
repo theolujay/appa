@@ -1,0 +1,35 @@
+version: 2
+
+project_name: appa
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./internal/cli/ansible/
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    binary: appa
+    ldflags:
+      - -s -w
+
+archives:
+  - formats:
+      - binary
+    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+release:
+  github:
+    owner: theolujay
+    name: appa

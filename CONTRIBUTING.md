@@ -39,13 +39,13 @@ Use these names consistently when discussing or documenting Appa:
 | Appa Instance | One remote Appa Server installation managed by the CLI. |
 | Appa Stack | Server-side services: API, UI, PostgreSQL, BuildKit, Caddy. |
 
-`appa.dev/install.sh` should install the local CLI. It should not be documented
+The install script (`scripts/install.sh`) installs the CLI binary. It should not be used
 as a script that is run directly on the VPS to install the server stack.
 
 The first-time production flow is:
 
 ```bash
-curl -fsSL https://appa.dev/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/theolujay/appa/main/scripts/install.sh | sh
 appa instance init personal
 appa instance set-host -i ~/.ssh/id_ed25519 personal root@203.0.113.10
 appa preflight personal
@@ -108,7 +108,9 @@ go run ./cmd/cli --help          # Direct without build
 │   │   ├── ssh_hardening/       # sshd config
 │   │   ├── firewall/            # UFW rules
 │   │   ├── audit/               # auditd install, config, rules
-│   │   └── ... (docker, appa_stack, caddy — planned)
+│   │   ├── docker/              # Docker + Compose installation
+│   │   ├── appa_stack/          # Appa Stack dirs, env, compose, startup
+│   │   └── caddy/               # Planned — production Caddy image
 │   ├── group_vars/
 │   └── dev/                # Vagrant development VM
 ├── internal/
@@ -135,9 +137,7 @@ go run ./cmd/cli --help          # Direct without build
 ├── docs/
 │   ├── architecture.md
 │   ├── roadmap.md
-│   ├── ansible.md
-│   ├── DEPLOY_STACK.md
-│   └── cli-commands.md
+│   └── ansible.md
 ├── Caddyfile
 ├── Dockerfile
 ├── Makefile
@@ -217,10 +217,12 @@ All routes are prefixed with `/v1/` and proxied through Caddy.
 ## CLI Reference
 
 ```bash
+appa --version                         # Show build version (git tag or "(devel)")
 appa instance init <name>              # Create a local instance profile
-appa instance list                     # List known Appa instances
+appa instance edit <name>              # Open profile in $EDITOR, validates on save
 appa instance set-host <name> <target> # Set SSH target, e.g. root@203.0.113.10
   -i, --identity-file <path>           # SSH private key for this instance
+appa instance list                     # List known Appa instances
 appa preflight <name>                  # Validate SSH, OS, ports, DNS, and inputs
 appa setup <name>                      # First-time remote Appa Server setup
   --force                              # Skip preflight checks
@@ -237,8 +239,24 @@ appa upgrade <name>                    # Upgrade remote Appa Stack images
   --version <tag>                      # Pin to a specific version tag
 ```
 
-Longer term, project-level commands can use the Appa Server API for developer
-workflows such as `appa deploy`, `appa logs`, `appa env`, and rollbacks.
+**Profile config** (`~/.appa/instances/<name>/config.toml`, 0600 perms):
+```toml
+name = "personal"
+ssh_host = ""
+ssh_user = "root"
+ssh_port = 22
+domain = ""
+cloudflare_token = ""
+smtp_host = ""
+smtp_port = 587
+smtp_username = ""
+smtp_password = ""
+```
+
+**Target format** for `set-host`: `user@host` or `user@host:port` (e.g. `root@203.0.113.10` or `root@203.0.113.10:2222`).
+
+Longer term, project-level commands (`deploy`, `logs`, `env`, rollbacks) will
+use the Appa Server API instead of SSH/Ansible.
 
 ## Coding Conventions
 

@@ -10,6 +10,8 @@ run directly against a generated or local test inventory.
   and audit hardening via all five roles.
 - `playbooks/compliance-scan.yml` — read-only checks for the same control areas
   and reports drift.
+- `playbooks/deploy-stack.yml` — installs Docker, renders Appa Stack environment
+  and Compose file, starts platform services on the remote VPS.
 
 ## Roles
 

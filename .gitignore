@@ -65,3 +65,6 @@ internal/cli/ansible/_embed/
 # Molecule auto-generated role symlinks (created by molecule prerun or manually)
 deploy/ansible/roles/*/molecule/*/roles/
 deploy/ansible/playbooks/*/molecule/*/roles/
+
+# Local TODO tracking — not part of the project
+TODO.md

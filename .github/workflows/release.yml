@@ -5,33 +5,9 @@ on:
     tags:
       - "v*"
 
-env:
-  REGISTRY: ghcr.io
-
 jobs:
-  prepare:
-    runs-on: ubuntu-24.04
-    outputs:
-      repo_name: ${{ steps.meta.outputs.REPO_NAME }}
-      repo_owner: ${{ steps.meta.outputs.REPO_OWNER }}
-      short_sha: ${{ steps.meta.outputs.SHORT_SHA }}
-      version: ${{ steps.meta.outputs.VERSION }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Extract metadata
-        id: meta
-        run: |
-          echo "REPO_NAME=$(echo '${GITHUB_REPOSITORY##*/}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
-          echo "REPO_OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
-          echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
   build-api:
-    runs-on: ubuntu-24.04
-    needs: [prepare]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -39,17 +15,22 @@ jobs:
       - uses: actions/checkout@v6
       - uses: docker/setup-buildx-action@v4
 
-      - name: Login to GHCR
+      - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build and push API
+      - name: Environment
+        run: |
+          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "REPO_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Build and push API image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ needs.prepare.outputs.repo_owner }}/appa-api:${{ needs.prepare.outputs.version }}
-            ghcr.io/${{ needs.prepare.outputs.repo_owner }}/appa-api:latest
+            ghcr.io/${{ env.REPO_OWNER }}/appa-api:${{ env.VERSION }}
+            ghcr.io/${{ env.REPO_OWNER }}/appa-api:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           labels: |
@@ -57,8 +38,7 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
 
   build-ui:
-    runs-on: ubuntu-24.04
-    needs: [prepare]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -66,88 +46,45 @@ jobs:
       - uses: actions/checkout@v6
       - uses: docker/setup-buildx-action@v3
 
-      - name: Login to GHCR
+      - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build and push UI
+      - name: Environment
+        run: |
+          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "REPO_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Build and push UI image
         uses: docker/build-push-action@v6
         with:
           context: ./ui
           push: true
           tags: |
-            ghcr.io/${{ needs.prepare.outputs.repo_owner }}/appa-ui:${{ needs.prepare.outputs.version }}
-            ghcr.io/${{ needs.prepare.outputs.repo_owner }}/appa-ui:latest
+            ghcr.io/${{ env.REPO_OWNER }}/appa-ui:${{ env.VERSION }}
+            ghcr.io/${{ env.REPO_OWNER }}/appa-ui:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
 
-  build-cli:
-    runs-on: ubuntu-24.04
-    needs: [prepare]
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26"
-          cache: true
-
-      - name: Generate embedded files
-        run: go generate ./internal/cli/ansible/
-
-      - name: Build CLI (linux/amd64)
-        run: go build -ldflags='-s -w' -o="appa-linux-amd64" ./cmd/cli/
-
-      - name: Build CLI (linux/arm64)
-        run: GOOS=linux GOARCH=arm64 go build -ldflags='-s -w' -o="appa-linux-arm64" ./cmd/cli/
-
-      - name: Build CLI (darwin/amd64)
-        run: GOOS=darwin GOARCH=amd64 go build -ldflags='-s -w' -o="appa-darwin-amd64" ./cmd/cli/
-
-      - name: Build CLI (darwin/arm64)
-        run: GOOS=darwin GOARCH=arm64 go build -ldflags='-s -w' -o="appa-darwin-arm64" ./cmd/cli/
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: cli-binaries
-          path: appa-*
-
   release:
-    runs-on: ubuntu-24.04
-    needs: [build-api, build-ui, build-cli]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
         with:
-          name: cli-binaries
+          fetch-depth: 0
 
-      - name: Generate checksums
-        run: sha256sum appa-* > checksums.txt
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/setup-go@v6
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Appa ${{ github.ref_name }}
-          body: |
-            ## Appa ${{ github.ref_name }}
+          go-version: stable
+          cache: true
 
-            **Images:**
-            - `ghcr.io/${{ needs.prepare.outputs.repo_owner }}/appa-api:${{ needs.prepare.outputs.version }}`
-            - `ghcr.io/${{ needs.prepare.outputs.repo_owner }}/appa-ui:${{ needs.prepare.outputs.version }}`
-
-            **CLI binaries:**
-            - appa-linux-amd64
-            - appa-linux-arm64
-            - appa-darwin-amd64
-            - appa-darwin-arm64
-          files: |
-            appa-*
-            checksums.txt
-          draft: false
-          prerelease: false
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

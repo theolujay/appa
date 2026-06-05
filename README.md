@@ -35,12 +35,26 @@ commands, and API routes, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## CLI Quick Start
 
+### Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/theolujay/appa/main/scripts/install.sh | sh
+```
+
+Or build from source:
+
 ```bash
 make build/cli
-./bin/appa instance init my-server
-./bin/appa instance set-host my-server root@203.0.113.10
-./bin/appa preflight my-server
-./bin/appa setup my-server
+./bin/appa --help
+```
+
+### Use
+
+```bash
+appa instance init my-server
+appa instance set-host my-server root@203.0.113.10
+appa preflight my-server
+appa setup my-server
 ```
 
 ## Documentation
@@ -49,4 +63,4 @@ make build/cli
 - [Roadmap](docs/roadmap.md)
 - [Contributing](CONTRIBUTING.md)
 - [Ansible Reference](docs/ansible.md)
-- [Deploy Stack Plan](docs/DEPLOY_STACK.md)
+
