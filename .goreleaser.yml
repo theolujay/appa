@@ -8,7 +8,8 @@ before:
     - go generate ./internal/cli/ansible/
 
 builds:
-  - env:
+  - main: ./cmd/cli/
+    env:
       - CGO_ENABLED=0
     goos:
       - linux
