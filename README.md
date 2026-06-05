@@ -38,7 +38,7 @@ commands, and API routes, see [CONTRIBUTING.md](CONTRIBUTING.md).
 ### Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/theolujay/appa/main/scripts/install.sh | sh
+curl -fsSL https://appa.theolujay.dev/install.sh | sh
 ```
 
 Or build from source:
