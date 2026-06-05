@@ -23,6 +23,8 @@ const (
 	phaseCancel  = "cancel"
 )
 
+// Pipeline manages the deployment workflow for applications, including
+// code preparation, containerization, and traffic routing.
 type Pipeline struct {
 	deployment  *data.DeploymentModel
 	hub         *hub.Hub
@@ -31,6 +33,7 @@ type Pipeline struct {
 	activeTasks map[int64]context.CancelFunc
 }
 
+// New creates a new Pipeline with the necessary models and WebSocket hub.
 func New(dm *data.DeploymentModel, h *hub.Hub, r *Router) *Pipeline {
 	return &Pipeline{
 		deployment:  dm,
@@ -40,11 +43,13 @@ func New(dm *data.DeploymentModel, h *hub.Hub, r *Router) *Pipeline {
 	}
 }
 
+// Run performs the end-to-end deployment lifecycle for a deployment record.
 func (p *Pipeline) Run(d *data.Deployment) {
-	status := ""
+	var buildDir string
 	var imageTag string
 	var address string
-	var phase string
+	var phase = "preparation"
+	var err error
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -59,27 +64,35 @@ func (p *Pipeline) Run(d *data.Deployment) {
 		p.mu.Unlock()
 	}()
 
-	buildDir, err := p.Prepare(ctx, d.ID, d.Source)
+	buildDir, err = p.Prepare(ctx, d.ID, d.Source)
 	if buildDir != "" {
 		defer os.RemoveAll(buildDir)
 	}
+
 	if err == nil {
 		phase = phaseBuild
 		imageTag, err = p.Build(ctx, d.ID, buildDir)
-		if err == nil {
-			phase = phaseDeploy
-			address, err = p.StartContainer(ctx, d.ID, imageTag)
-			if err == nil {
-				phase = phaseRouting
-				err = p.router.AddRoute(d.ID, address)
-			}
-		}
-	} else {
-		status = data.FAILED
+	}
+
+	if err == nil {
+		phase = phaseDeploy
+		address, err = p.StartContainer(ctx, d.ID, imageTag)
+	}
+
+	if err == nil {
+		phase = phaseRouting
+		err = p.router.AddRoute(d.ID, address)
+	}
+
+	if err != nil {
+		status := data.FAILED
 		if errors.Is(ctx.Err(), context.Canceled) {
 			status = data.CANCELED
 		}
+
+		// TODO: handle database update error returned
 		p.deployment.UpdateAndGet(d.ID, data.DeploymentUpdate{Status: &status})
+
 		msg := fmt.Sprintf("%s failed: %v", phase, err)
 		logID, _ := p.deployment.AppendLog(d.ID, phase, msg)
 		p.hub.PublishLog(d.ID, hub.LogMessage{ID: logID, Line: msg})
@@ -89,9 +102,9 @@ func (p *Pipeline) Run(d *data.Deployment) {
 
 	url := fmt.Sprintf("http://%d.localhost", d.ID)
 
-	status = data.RUNNING
+	status := data.RUNNING
 	// TODO: handle this error
-	_, _ = p.deployment.UpdateAndGet(d.ID, data.DeploymentUpdate{
+	p.deployment.UpdateAndGet(d.ID, data.DeploymentUpdate{
 		Status:  &status,
 		URL:     &url,
 		Address: &address,
@@ -103,6 +116,8 @@ func (p *Pipeline) Run(d *data.Deployment) {
 	p.hub.PublishStatus(d.ID, status, url)
 }
 
+// Cancel stops a deployment by either cancelling the active context
+// or stopping the associated container if it's already running.
 func (p *Pipeline) Cancel(deploymentID int64) error {
 	p.mu.Lock()
 	cancel, ok := p.activeTasks[deploymentID]
@@ -118,12 +133,4 @@ func (p *Pipeline) Cancel(deploymentID int64) error {
 	p.hub.PublishLog(deploymentID, hub.LogMessage{ID: logID, Line: msg})
 
 	return nil
-}
-
-func truncStr(id int64) string {
-	s := fmt.Sprintf("%d", id)
-	if len(s) < 8 {
-		return s
-	}
-	return s[:8]
 }

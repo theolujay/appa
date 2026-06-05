@@ -152,9 +152,9 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 		// stdcopy.StdCopy runs in its own goroutine because it blocks until
 		// logReader is exhausted. It strips the 8-byte Docker headers and
 		// writes clean stdout bytes into pw. Stderr chunks go to io.Discard,
-		// Go's `/dev/null` (doing nothing with stderr)
+		// or can be directed to pw to merge them.
 		go func() {
-			stdcopy.StdCopy(pw, io.Discard, logReader)
+			stdcopy.StdCopy(pw, pw, logReader)
 			pw.Close()
 		}()
 
@@ -165,8 +165,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 	return address, nil
 }
 
-// StopContainer stops the container, removes the Caddy route, and
-// updates the deployment status to STOPPED.
+// StopContainer stops the Docker container, removes the associated Caddy route, and updates the deployment status to STOPPED.
 func (p *Pipeline) StopContainer(id int64) error {
 	URL := ""
 	imageTag := ""
@@ -210,8 +209,7 @@ func (p *Pipeline) StopContainer(id int64) error {
 	return nil
 }
 
-// getFreePort finds and returns an available TCP port by binding to port 0,
-// which causes the OS to automatically assign an available port.
+// getFreePort finds and returns an available TCP port by binding to port 0 on localhost.
 func getFreePort() (int, error) {
 	// the port number is automatically chosen with 0 as port in address parameter
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -222,9 +220,8 @@ func getFreePort() (int, error) {
 	return ln.Addr().(*net.TCPAddr).Port, nil
 }
 
-// caddyLogFilter filters out Caddy access logs from a reader stream by removing
-// lines containing the logger identifier `"logger":"http.log.access`. It returns
-// a new Reader with the filtered output.
+// caddyLogFilter removes Caddy HTTP access logs from an input stream.
+// It is used to prevent the deployment logs from being flooded with routine request information.
 func caddyLogFilter(r io.Reader) io.Reader {
 	pr, pw := io.Pipe()
 	go func() {

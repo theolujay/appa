@@ -185,18 +185,18 @@ func (app *application) readString(qs url.Values, key, defaultValue string) stri
 
 }
 
-// The readCSV() helper reads a string value from the query sting and
-// then splits it into a slice on the comma character. If no matching
-// key could be found, it returns the provided default value.
-func (app *application) readCSV(qs url.Values, key string, defaultValue []string) []string {
-	csv := qs.Get(key)
+// // The readCSV() helper reads a string value from the query sting and
+// // then splits it into a slice on the comma character. If no matching
+// // key could be found, it returns the provided default value.
+// func (app *application) readCSV(qs url.Values, key string, defaultValue []string) []string {
+// 	csv := qs.Get(key)
 
-	if csv == "" {
-		return defaultValue
-	}
+// 	if csv == "" {
+// 		return defaultValue
+// 	}
 
-	return strings.Split(csv, ",")
-}
+// 	return strings.Split(csv, ",")
+// }
 
 // The readInt() helper reads a string value from the query string and
 // converts it into an integer before returning. If no matching key
