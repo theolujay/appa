@@ -1,0 +1,44 @@
+---
+- name: Verify access control
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Check pwquality package installed
+      ansible.builtin.package_facts:
+
+    - name: Assert libpam-pwquality is present
+      ansible.builtin.assert:
+        that:
+          - "'libpam-pwquality' in ansible_facts.packages"
+        success_msg: "Password quality package installed"
+
+    - name: Check login.defs was written
+      ansible.builtin.command:
+        cmd: awk '/^PASS_MAX_DAYS/ {print $2}' /etc/login.defs
+      register: pass_max_days
+      changed_when: false
+
+    - name: Assert password max days is 90
+      ansible.builtin.assert:
+        that:
+          - pass_max_days.stdout | int == 90
+        success_msg: "PASS_MAX_DAYS correctly set to 90"
+
+    - name: Check security groups exist
+      ansible.builtin.getent:
+        database: group
+        key: "{{ item }}"
+      loop:
+        - appa-admin
+        - deploy
+
+    - name: Check sudoers file exists
+      ansible.builtin.stat:
+        path: /etc/sudoers.d/ansible-managed
+      register: sudoers_file
+
+    - name: Assert sudoers was written
+      ansible.builtin.assert:
+        that:
+          - sudoers_file.stat.exists
+        success_msg: "Managed sudoers file is in place"

@@ -1,0 +1,6 @@
+---
+- name: Restart SSH daemon
+  ansible.builtin.service:
+    name: "{{ ssh_service_name }}"
+    state: restarted
+  listen: restart sshd

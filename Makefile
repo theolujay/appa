@@ -47,6 +47,72 @@ db/migrations/up: confirm
 	@migrate -path ./migrations -database ${APPA_DB_DSN} up
 
 # ==================================================================================== #
+# VAGRANT / ANSIBLE (infrastructure)
+# ==================================================================================== #
+
+VAGRANT_DIR = deploy/ansible/dev
+VENV_BIN    = $(CURDIR)/deploy/ansible/.venv/bin
+
+## vagrant/up: create and start the dev VM (activate venv first, then vagrant)
+.PHONY: vagrant/up
+vagrant/up:
+	cd $(VAGRANT_DIR) && PATH="$(VENV_BIN):$$PATH" vagrant up
+
+## vagrant/destroy: destroy the dev VM
+.PHONY: vagrant/destroy
+vagrant/destroy:
+	cd $(VAGRANT_DIR) && PATH="$(VENV_BIN):$$PATH" vagrant destroy -f
+
+## vagrant/reload: reboot and re-provision the dev VM
+.PHONY: vagrant/reload
+vagrant/reload:
+	cd $(VAGRANT_DIR) && PATH="$(VENV_BIN):$$PATH" vagrant reload --provision
+
+## vagrant/ssh: SSH into the dev VM
+.PHONY: vagrant/ssh
+vagrant/ssh:
+	cd $(VAGRANT_DIR) && vagrant ssh
+
+## vagrant/status: show VM status
+.PHONY: vagrant/status
+vagrant/status:
+	cd $(VAGRANT_DIR) && vagrant status
+
+## ansible/lint: run ansible-lint on all Ansible files
+.PHONY: ansible/lint
+ansible/lint:
+	PATH="$(VENV_BIN):$$PATH" ansible-lint $(ARGS)
+
+## ansible/galaxy/install: install external roles from requirements.yml
+.PHONY: ansible/galaxy/install
+ansible/galaxy/install:
+	cd $(ANSIBLE_DIR) && PATH="$(VENV_BIN):$$PATH" ansible-galaxy role install -r requirements.yml
+
+ANSIBLE_DIR = deploy/ansible
+ROLES       = kernel_hardening access_control ssh_hardening firewall audit
+
+## ansible/molecule/role: run molecule on a role (ROLE=<name>, CMD=<command>)
+.PHONY: ansible/molecule/role
+ansible/molecule/role:
+	@if [ -z "$(ROLE)" ]; then echo "Usage: make ansible/molecule/role ROLE=<name> [CMD=test]"; exit 1; fi
+	@cd $(ANSIBLE_DIR)/roles/$(ROLE) && PATH="$(VENV_BIN):$$PATH" molecule $(CMD)
+
+## ansible/molecule/playbook: run molecule on the playbook scenario (CMD=<command>)
+.PHONY: ansible/molecule/playbook
+ansible/molecule/playbook:
+	@cd $(ANSIBLE_DIR)/playbooks/security-hardening && PATH="$(VENV_BIN):$$PATH" molecule $(CMD)
+
+## ansible/molecule/test/all: run full molecule test on all roles and playbook
+.PHONY: ansible/molecule/test/all
+ansible/molecule/test/all:
+	@for role in $(ROLES); do \
+		echo "=== Testing role: $$role ==="; \
+		cd $(CURDIR)/$(ANSIBLE_DIR)/roles/$$role && PATH="$(VENV_BIN):$$PATH" molecule test || exit 1; \
+	done
+	@echo "=== Testing playbook: security-hardening ==="; \
+	cd $(CURDIR)/$(ANSIBLE_DIR)/playbooks/security-hardening && PATH="$(VENV_BIN):$$PATH" molecule test
+
+# ==================================================================================== #
 # QUALITY CONTROL
 # ==================================================================================== #
 
@@ -78,5 +144,19 @@ audit:
 .PHONY: build/api
 build/api:
 	@echo 'Building cmd/api...'
-	go build -ldflags='-s' -o=./bin/api ./cmd/api
-	GOOS=linux GOARCH=amd64 go build -ldflags='-s' -o=./bin/linux_amd64/api ./cmd/api
+	@go build -ldflags='-s' -o=./bin/api ./cmd/api
+	@GOOS=linux GOARCH=amd64 go build -ldflags='-s' -o=./bin/linux_amd64/api ./cmd/api
+
+## build/cli: build the cmd/cli application
+.PHONY: build/cli
+build/cli:
+	@echo 'Generating embedded files...'
+	go generate ./internal/cli/ansible/
+	@echo 'Building cmd/cli...'
+	@go build -ldflags='-s' -o=./bin/appa ./cmd/cli
+	@GOOS=linux GOARCH=amd64 go build -ldflags='-s' -o=./bin/linux_amd64/appa ./cmd/cli
+
+## run/cli: build and run the CLI with arguments (ARGS="...")
+.PHONY: run/cli
+run/cli:
+	@go run ./cmd/cli $(ARGS)

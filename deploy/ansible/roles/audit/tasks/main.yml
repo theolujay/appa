@@ -1,0 +1,32 @@
+---
+- name: Install auditd
+  ansible.builtin.package:
+    name:
+      - auditd
+      - audispd-plugins
+    state: present
+
+- name: Configure auditd
+  ansible.builtin.template:
+    src: auditd.conf.j2
+    dest: /etc/audit/auditd.conf
+    owner: root
+    group: root
+    mode: "0640"
+  notify: restart auditd
+
+- name: Configure audit rules
+  ansible.builtin.template:
+    src: audit.rules.j2
+    dest: /etc/audit/rules.d/hardening.rules
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Reload audit rules
+
+- name: Enable auditd service
+  ansible.builtin.service:
+    name: auditd
+    state: started
+    enabled: true
+  when: ansible_facts['virtualization_type'] not in ['docker', 'container', 'containerd']

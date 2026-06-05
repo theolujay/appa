@@ -1,0 +1,18 @@
+---
+appa_stack_dir: /opt/appa
+
+# Container images (version set via appa_version extra_var, defaults to latest)
+appa_api_image: ghcr.io/theolujay/appa-api:{{ appa_version | default('latest') }}
+appa_ui_image: ghcr.io/theolujay/appa-ui:{{ appa_version | default('latest') }}
+caddy_image: caddy:2.11.2-alpine
+buildkit_image: moby/buildkit:v0.29.0
+postgres_image: postgres:18.3-bookworm
+
+# Feature versions
+railpack_version: v0.23.0
+
+# Derived defaults
+cors_origins: >-
+  {{ 'https://' + appa_instance_domain if appa_instance_domain else '*' }}
+smtp_sender: >-
+  {{ 'Appa <noreply@' + appa_instance_domain + '>' if appa_instance_domain else 'Appa <noreply@appa.local>' }}

@@ -1,0 +1,16 @@
+[project]
+name = "appa-ansible"
+version = "0.1.0"
+description = "Infrastructure configuration, testing, and server hardening tooling for the Appa PaaS."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ansible>=14.0.0",
+    "molecule>=26.4.0",
+    "molecule-plugins[docker]>=25.8.12",
+]
+
+[dependency-groups]
+dev = [
+    "ansible-lint>=26.4.0",
+]

@@ -1,0 +1,20 @@
+---
+- name: Converge
+  hosts: all
+  gather_facts: true
+  ignore_errors: true
+  pre_tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+  tasks:
+    - name: Apply audit role
+      ansible.builtin.include_role:
+        name: audit
+    - name: Ensure auditd is registered for service_facts
+      ansible.builtin.systemd:
+        name: auditd.service
+      changed_when: false
+      register: auditd_state
+      failed_when: false

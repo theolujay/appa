@@ -1,0 +1,26 @@
+---
+- name: Verify audit configuration
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Check audit rules file exists
+      ansible.builtin.stat:
+        path: /etc/audit/rules.d/hardening.rules
+      register: audit_rules
+
+    - name: Assert hardening rules are in place
+      ansible.builtin.assert:
+        that:
+          - audit_rules.stat.exists
+        success_msg: "Audit hardening rules are in place"
+
+    - name: Verify auditd config
+      ansible.builtin.stat:
+        path: /etc/audit/auditd.conf
+      register: audit_conf
+
+    - name: Assert auditd config exists
+      ansible.builtin.assert:
+        that:
+          - audit_conf.stat.exists
+        success_msg: "auditd config is present"

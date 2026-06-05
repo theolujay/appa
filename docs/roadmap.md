@@ -1,9 +1,9 @@
 # Appa Roadmap
 
 This roadmap tracks delivery phases and future evolution. Architecture constraints
-and system design decisions live in [ARCHITECTURE.md](./ARCHITECTURE.md).
+and system design decisions live in [ARCHITECTURE.md](./architecture.md).
 
-## MVP
+## MVP (Complete)
 
 - Self-hostable single-node platform stack with Docker Compose.
 - Go API, PostgreSQL, BuildKit, Caddy, and React dashboard.
@@ -17,21 +17,23 @@ and system design decisions live in [ARCHITECTURE.md](./ARCHITECTURE.md).
 - Persisted deployment records and historical logs.
 - Local development flow using `localhost` subdomains.
 
-## CLI & Remote Operations
+## CLI & Remote Operations (Complete)
 
-- Appa CLI installer at `appa.dev/install.sh`; the script installs the local
-  CLI on the operator's machine, not the remote server stack.
-- Instance profiles for managing one or more remote Appa installations.
-- SSH target configuration for each instance profile.
-- Preflight checks for SSH access, supported OS, ports, Docker readiness, DNS,
+- Appa CLI (`cmd/cli/`) for remote instance management and provisioning.
+- Instance profiles in `~/.appa/instances/<name>/config.toml`.
+- SSH target configuration with identity file support (`--identity-file`).
+- Preflight checks for SSH access, OS, ports, DNS, Docker readiness,
   and required operator inputs.
 - Remote setup through `appa setup <instance>`, backed by Ansible playbooks.
 - Idempotent `appa apply <instance>` for configuration changes after initial
   setup.
-- Basic remote operations: `status`, service logs, restart, upgrade, and
-  uninstall safeguards.
-- Local secret handling for instance configuration, with Ansible Vault or a
-  comparable encryption path for sensitive values.
+- Remote operations: `status`, `logs` (with service filter), `restart`,
+  and `upgrade` (with optional version pin).
+- Ansible hardening roles for UFW, SSH, access control, kernel parameters,
+  and auditd, with passing Molecule tests.
+- Compliance-scan playbook for CIS-style checks.
+- CI workflow with lint + molecule matrix.
+- Makefile targets for build, run, lint, and test workflows.
 
 ## Stability & Performance
 
@@ -49,8 +51,6 @@ and system design decisions live in [ARCHITECTURE.md](./ARCHITECTURE.md).
 - Ansible as the default remote provisioning engine for Appa Server instances.
 - Host provisioning roles for Docker, Compose, Appa Stack files, environment
   rendering, firewall rules, and service lifecycle management.
-- Optional hardening roles for UFW rules, SSH security, unattended upgrades, and
-  least-privilege operator access.
 - Automated backups for Appa PostgreSQL data to S3-compatible storage.
 - Project-scoped backup and restore workflows for deployed applications.
 - Integrated Prometheus and Grafana stack for platform and app monitoring.
@@ -71,17 +71,6 @@ and system design decisions live in [ARCHITECTURE.md](./ARCHITECTURE.md).
 - Load balancing and health-aware routing for scaled app instances.
 
 ## Future Evolution
-
-### Installer and Host Provisioning
-
-Appa's default installation path should start on the operator's machine:
-`appa.dev/install.sh` installs the Appa CLI, then the CLI provisions the remote
-VPS. `appa setup <instance>` should prepare an Ubuntu VPS, write the required
-environment, start the Appa Stack, and print the operator's access URL.
-
-The CLI should allow progressive configuration. The operator should be able to
-create an instance profile with only an SSH target, run preflight checks, and add
-domain, DNS, SMTP, backup, and monitoring settings as they become available.
 
 ### DNS Provider Abstraction
 

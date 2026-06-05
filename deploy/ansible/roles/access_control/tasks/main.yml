@@ -1,0 +1,64 @@
+---
+- name: Install password quality package
+  ansible.builtin.package:
+    name: libpam-pwquality
+    state: present
+
+- name: Create security groups
+  ansible.builtin.group:
+    name: "{{ item.name }}"
+    gid: "{{ item.gid | default(omit) }}"
+    state: present
+  loop: "{{ security_groups }}"
+
+- name: Configure sudo access
+  ansible.builtin.template:
+    src: sudoers.j2
+    dest: /etc/sudoers.d/ansible-managed
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "/usr/sbin/visudo -cf %s"
+
+- name: Set password policies
+  ansible.builtin.template:
+    src: login.defs.j2
+    dest: /etc/login.defs
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure PAM password quality
+  ansible.builtin.template:
+    src: pwquality.conf.j2
+    dest: /etc/security/pwquality.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Lock inactive user accounts
+  ansible.builtin.user:
+    name: "{{ item }}"
+    password_lock: true
+  loop: "{{ inactive_users | default([]) }}"
+
+- name: Remove unauthorized users
+  ansible.builtin.user:
+    name: "{{ item }}"
+    state: absent
+    remove: true
+  loop: "{{ unauthorized_users | default([]) }}"
+
+- name: Set file permissions on sensitive files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "/etc/passwd", mode: "0644" }
+    - { path: "/etc/shadow", mode: "0000" }
+    - { path: "/etc/group", mode: "0644" }
+    - { path: "/etc/gshadow", mode: "0000" }
+    - { path: "/etc/sudoers", mode: "0440" }
+    - { path: "/etc/ssh/sshd_config", mode: "0600" }

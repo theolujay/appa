@@ -1,0 +1,22 @@
+# Managed by Ansible
+
+MAIL_DIR        /var/mail
+FAILLOG_ENAB    yes
+LOG_UNKFAIL_ENAB no
+LOG_OK_LOGINS   no
+SYSLOG_SU_ENAB  yes
+SYSLOG_SG_ENAB  yes
+
+PASS_MAX_DAYS   {{ password_max_days }}
+PASS_MIN_DAYS   {{ password_min_days }}
+PASS_WARN_AGE   {{ password_warn_age }}
+PASS_MIN_LEN    {{ password_min_length }}
+
+UID_MIN         1000
+UID_MAX         60000
+GID_MIN         1000
+GID_MAX         60000
+
+UMASK           027
+USERGROUPS_ENAB yes
+ENCRYPT_METHOD  SHA512

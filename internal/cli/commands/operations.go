@@ -1,0 +1,266 @@
+package commands
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/theolujay/appa/internal/cli/config"
+	"github.com/theolujay/appa/internal/cli/output"
+	"github.com/theolujay/appa/internal/cli/ssh"
+)
+
+func StatusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status <name>",
+		Short: "Show instance health and service status",
+		Args:  cobra.ExactArgs(1),
+		RunE:  statusFunc,
+	}
+}
+
+func LogsCmd() *cobra.Command {
+	var service string
+	var tail int
+	cmd := &cobra.Command{
+		Use:   "logs <name>",
+		Short: "Tail Appa Stack logs",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return logsFunc(args, service, tail)
+		},
+	}
+	cmd.Flags().StringVarP(&service, "service", "s", "", "Filter to one service (api, db, buildkit, caddy, ui)")
+	cmd.Flags().IntVarP(&tail, "tail", "n", 50, "Number of lines to show")
+	return cmd
+}
+
+func RestartCmd() *cobra.Command {
+	var service string
+	cmd := &cobra.Command{
+		Use:   "restart <name>",
+		Short: "Restart Appa Stack services",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return restartFunc(args, service)
+		},
+	}
+	cmd.Flags().StringVarP(&service, "service", "s", "", "Restart only one service")
+	return cmd
+}
+
+func UpgradeCmd() *cobra.Command {
+	var version string
+	cmd := &cobra.Command{
+		Use:   "upgrade <name>",
+		Short: "Upgrade the Appa Stack",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return upgradeFunc(args, version)
+		},
+	}
+	cmd.Flags().StringVar(&version, "version", "", "Pin to a specific version tag")
+	return cmd
+}
+
+func statusFunc(_ *cobra.Command, args []string) error {
+	name := args[0]
+	if !config.Exists(name) {
+		return fmt.Errorf("profile %q not found", name)
+	}
+	p, err := config.Load(name)
+	if err != nil {
+		return err
+	}
+	if p.SSHHost == "" {
+		return fmt.Errorf("no SSH target set for %q", name)
+	}
+
+	output.Section("Status for %q", name)
+
+	clientConfig := ssh.Client{
+		User:         p.SSHUser,
+		Host:         p.SSHHost,
+		Port:         p.SSHPort,
+		IdentityFile: p.SSHIdentityFile,
+	}
+
+	output.Check("SSH target", p.SSHHost != "")
+	sshOK := ssh.TestConnect(p.SSHUser, p.SSHHost, p.SSHPort, p.SSHIdentityFile) == nil
+	output.Check("SSH reachable", sshOK)
+
+	switch {
+	case p.SetupDone && sshOK:
+		fmt.Print("  Checking API health...\n")
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Get(p.APIURL)
+		if err != nil {
+			return fmt.Errorf("unable to reach API: %s", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("failed to read API response body: %w", err)
+			}
+			output.Check("API status:\n%s", true, string(body))
+		} else {
+			output.Check("API healthy", false)
+		}
+
+		fmt.Print("  Checking Docker Compose services...\n")
+		checkCmd := `
+			docker compose -f /opt/appa/compose.yml ps --format '{{.Name}} {{.Status}}' 2>/dev/null || echo 'compose not found'
+		`
+		out, err := ssh.RunCommand(clientConfig, checkCmd)
+		if err != nil {
+			return err
+		}
+
+		if strings.Contains(out, "compose not found") || out == "" {
+			output.Check("Appa Stack running", false)
+		} else {
+			output.Check("Appa Stack services", true)
+			fmt.Println(strings.TrimSpace(out))
+		}
+
+		fmt.Print("  Checking disk usage...\n")
+		diskOut, err := ssh.RunCommand(clientConfig,
+			"df -h / | awk 'NR==2 {print \"  Used: \" $3 \" / \" $2 \" (\" $5 \")\"}'",
+		)
+		if err != nil {
+			return fmt.Errorf("unable to get status: %w", err)
+		}
+		if diskOut != "" {
+			fmt.Println(strings.TrimSpace(diskOut))
+		}
+	case !sshOK:
+		output.Warn("Cannot check further: SSH not reachable")
+	default:
+		output.Warn("Instance not yet set up; run 'appa setup %s'", name)
+	}
+	return nil
+}
+
+func logsFunc(args []string, service string, tail int) error {
+	name := args[0]
+	if !config.Exists(name) {
+		return fmt.Errorf("profile %q not found", name)
+	}
+	p, err := config.Load(name)
+	if err != nil {
+		return err
+	}
+	if p.SSHHost == "" {
+		return fmt.Errorf("no SSH target set for %q", name)
+	}
+	clientConfig := ssh.Client{
+		User:         p.SSHUser,
+		Host:         p.SSHHost,
+		Port:         p.SSHPort,
+		IdentityFile: p.SSHIdentityFile,
+	}
+	dockerCmd := "docker compose -f /opt/appa/compose.yml logs -f"
+	if tail > 0 {
+		dockerCmd += fmt.Sprintf(" -n %d", tail)
+	}
+	if service != "" {
+		dockerCmd += " " + service
+	}
+	c := ssh.RunInteractiveCommand(clientConfig, dockerCmd)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	c.Stdin = os.Stdin
+	return c.Run()
+}
+
+func restartFunc(args []string, service string) error {
+	name := args[0]
+	if !config.Exists(name) {
+		return fmt.Errorf("profile %q not found", name)
+	}
+	p, err := config.Load(name)
+	if err != nil {
+		return err
+	}
+	if p.SSHHost == "" {
+		return fmt.Errorf("no SSH target set for %q", name)
+	}
+	clientConfig := ssh.Client{
+		User:         p.SSHUser,
+		Host:         p.SSHHost,
+		Port:         p.SSHPort,
+		IdentityFile: p.SSHIdentityFile,
+	}
+	dockerCmd := "docker compose -f /opt/appa/compose.yml restart"
+	if service != "" {
+		dockerCmd += " " + service
+	}
+	output.Success("Restarting services on %q...", name)
+	out, err := ssh.RunCommand(clientConfig, dockerCmd)
+	if err != nil {
+		return fmt.Errorf("restart failed: %w\n%s", err, out)
+	}
+	fmt.Print(out)
+	output.Success("Restart complete")
+	return nil
+}
+
+func upgradeFunc(args []string, version string) error {
+	name := args[0]
+	if !config.Exists(name) {
+		return fmt.Errorf("profile %q not found", name)
+	}
+	p, err := config.Load(name)
+	if err != nil {
+		return err
+	}
+	if p.SSHHost == "" {
+		return fmt.Errorf("no SSH target set for %q", name)
+	}
+	clientConfig := ssh.Client{
+		User:         p.SSHUser,
+		Host:         p.SSHHost,
+		Port:         p.SSHPort,
+		IdentityFile: p.SSHIdentityFile,
+	}
+
+	output.Section("Upgrading %q", name)
+
+	output.Success("Pulling latest images...")
+	pullCmd := "docker compose -f /opt/appa/compose.yml pull"
+	if version != "" {
+		pullCmd = fmt.Sprintf(
+			`IMAGES=$(docker compose -f /opt/appa/compose.yml config --images 2>/dev/null || docker compose -f /opt/appa/compose.yml images -q) && for img in $IMAGES; do docker pull "${img%%:*}:%s"; done`,
+			version,
+		)
+	}
+	out, err := ssh.RunCommand(clientConfig, pullCmd)
+	if err != nil {
+		return fmt.Errorf("pull failed: %w\n%s", err, out)
+	}
+	fmt.Print(out)
+
+	output.Success("Recreating services...")
+	out, err = ssh.RunCommand(clientConfig, "docker compose -f /opt/appa/compose.yml up -d")
+	if err != nil {
+		return fmt.Errorf("up failed: %w\n%s", err, out)
+	}
+	fmt.Print(out)
+
+	output.Success("Waiting for API...")
+	apiURL := p.APIURL
+	if apiURL == "" {
+		apiURL = fmt.Sprintf("http://%s:8080/v1/healthcheck", p.SSHHost)
+	}
+	if err := pollHealth(apiURL, 60*time.Second); err != nil {
+		return fmt.Errorf("API not healthy after upgrade: %w", err)
+	}
+	output.Success("Upgrade complete for %q", name)
+	return nil
+}

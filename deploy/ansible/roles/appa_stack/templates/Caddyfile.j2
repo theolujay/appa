@@ -1,0 +1,41 @@
+{% if appa_instance_domain %}
+{
+    admin 0.0.0.0:2019
+    debug
+{% if not cloudflare_token %}
+    auto_https off
+{% endif %}
+}
+
+{{ appa_instance_domain }}:80{% if cloudflare_token %}, {{ appa_instance_domain }}:443{% endif %} {
+{% if cloudflare_token %}
+    tls {
+        dns cloudflare {{ cloudflare_token }}
+    }
+{% endif %}
+
+    handle /v1/* {
+        reverse_proxy api:8080
+    }
+
+    handle {
+        reverse_proxy ui:5173
+    }
+}
+{% else %}
+{
+    admin 0.0.0.0:2019
+    auto_https off
+    debug
+}
+
+http://{{ ansible_host }}:80 {
+    handle /v1/* {
+        reverse_proxy api:8080
+    }
+
+    handle {
+        reverse_proxy ui:5173
+    }
+}
+{% endif %}

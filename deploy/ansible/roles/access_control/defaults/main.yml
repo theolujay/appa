@@ -1,0 +1,17 @@
+---
+security_groups:
+  - name: appa-admin
+  - name: deploy
+
+sudo_rules: []
+inactive_users: []
+unauthorized_users: []
+password_max_days: 90
+password_min_days: 1
+password_warn_age: 7
+password_min_length: 12
+password_retry_count: 3
+password_dcredit: -1
+password_ucredit: -1
+password_lcredit: -1
+password_ocredit: -1

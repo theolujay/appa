@@ -1,0 +1,5 @@
+---
+exclude_paths:
+  - roles/geerlingguy.docker/
+skip_list:
+  - var-naming[no-role-prefix]

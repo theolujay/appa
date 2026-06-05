@@ -1,0 +1,79 @@
+name: Ansible Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "deploy/ansible/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "deploy/ansible/**"
+
+env:
+  ANSIBLE_DIR: deploy/ansible
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.ANSIBLE_DIR }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          python-version-file: "pyproject.toml"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.19"
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --dev
+      - name: Run ansible-lint
+        run: uv run ansible-lint --profile production
+
+  molecule:
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - role: kernel_hardening
+            dir: roles/kernel_hardening
+          - role: access_control
+            dir: roles/access_control
+          - role: ssh_hardening
+            dir: roles/ssh_hardening
+          - role: firewall
+            dir: roles/firewall
+          - role: audit
+            dir: roles/audit
+          - role: playbook
+            dir: playbooks/security-hardening
+    defaults:
+      run:
+        working-directory: ${{ env.ANSIBLE_DIR }}/${{ matrix.scenario.dir }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          python-version-file: "pyproject.toml"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.19"
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --dev
+      - name: Install ansible collections
+        run: |
+          uv run ansible-galaxy collection install community.general
+          uv run ansible-galaxy collection install ansible.posix
+      - name: Run molecule test
+        run: uv run molecule test

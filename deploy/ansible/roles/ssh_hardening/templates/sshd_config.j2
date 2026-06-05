@@ -1,0 +1,59 @@
+# SSH Server Configuration - Hardened
+# Managed by Ansible
+
+# Protocol and listening
+Port {{ ssh_port | default(22) }}
+Protocol 2
+AddressFamily inet
+ListenAddress 0.0.0.0
+
+# Host keys - prefer Ed25519 and ECDSA
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+HostKey /etc/ssh/ssh_host_rsa_key
+
+# Ciphers and key exchange
+KexAlgorithms curve25519-sha256@libssh.org,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
+
+# Authentication
+PermitRootLogin {{ 'prohibit-password' if allow_root_ssh_keys else 'no' }}
+PubkeyAuthentication yes
+PasswordAuthentication {{ 'yes' if allow_password_auth else 'no' }}
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+UsePAM yes
+
+# Access control
+AllowUsers {{ ssh_allowed_users | default(['deploy']) | unique | join(' ') }}
+{% if ssh_allowed_groups | default([]) | length > 0 %}
+AllowGroups {{ ssh_allowed_groups | join(' ') }}
+{% endif %}
+
+# Session settings
+MaxAuthTries 3
+MaxSessions 5
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax 2
+
+# Forwarding
+AllowTcpForwarding {{ 'yes' if allow_tcp_forwarding | default(false) else 'no' }}
+X11Forwarding no
+AllowAgentForwarding {{ 'yes' if allow_agent_forwarding | default(false) else 'no' }}
+
+# Security
+StrictModes yes
+IgnoreRhosts yes
+HostbasedAuthentication no
+PermitUserEnvironment no
+
+# Logging
+SyslogFacility AUTH
+LogLevel VERBOSE
+
+# Banner
+Banner /etc/ssh/banner
+PrintMotd no
+PrintLastLog yes

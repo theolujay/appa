@@ -1,0 +1,76 @@
+---
+- name: Security compliance scan
+  hosts: all
+  gather_facts: true
+
+  tasks:
+    - name: Check SSH configuration
+      ansible.builtin.command: sshd -T
+      register: sshd_effective_config
+      changed_when: false
+      tags: [ssh, cis]
+
+    - name: Verify SSH root login restriction
+      ansible.builtin.assert:
+        that:
+          - sshd_effective_config.stdout is search('(?m)^permitrootlogin (no|prohibit-password)$')
+        fail_msg: "Root login is not properly restricted"
+        success_msg: "SSH root login is properly restricted"
+      tags: [ssh, cis]
+
+    - name: Check password expiration policy
+      ansible.builtin.command: awk '/^PASS_MAX_DAYS/ {print $2}' /etc/login.defs
+      register: pass_max_days
+      changed_when: false
+
+    - name: Verify password max days
+      ansible.builtin.assert:
+        that:
+          - pass_max_days.stdout | int <= 90
+        fail_msg: "Password expiration exceeds 90 days"
+        success_msg: "Password expiration is compliant"
+      tags: [password, cis]
+
+    - name: Check for unowned files
+      ansible.builtin.shell: |
+        set -o pipefail
+        find / -xdev \( -nouser -o -nogroup \) 2>/dev/null | head -20
+      args:
+        executable: /bin/bash
+      register: unowned_files
+      changed_when: false
+      failed_when: false
+
+    - name: Report unowned files
+      ansible.builtin.debug:
+        msg: "Found unowned files: {{ unowned_files.stdout_lines }}"
+      when: unowned_files.stdout_lines | length > 0
+      tags: [filesystem, cis]
+
+    - name: Check world-writable files
+      ansible.builtin.shell: |
+        set -o pipefail
+        find / -xdev -type f -perm -0002 2>/dev/null | head -20
+      args:
+        executable: /bin/bash
+      register: world_writable
+      changed_when: false
+      failed_when: false
+
+    - name: Report world-writable files
+      ansible.builtin.debug:
+        msg: "Found world-writable files: {{ world_writable.stdout_lines }}"
+      when: world_writable.stdout_lines | length > 0
+      tags: [filesystem, cis]
+
+    - name: Verify audit daemon is running
+      ansible.builtin.service_facts:
+
+    - name: Check auditd status
+      ansible.builtin.assert:
+        that:
+          - "'auditd.service' in ansible_facts.services"
+          - "ansible_facts.services['auditd.service'].state == 'running'"
+        fail_msg: "Audit daemon is not running"
+        success_msg: "Audit daemon is running"
+      tags: [audit, cis]

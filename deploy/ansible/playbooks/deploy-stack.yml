@@ -1,0 +1,7 @@
+---
+- name: Deploy the Appa Stack
+  hosts: appa
+  become: true
+  roles:
+    - docker
+    - appa_stack

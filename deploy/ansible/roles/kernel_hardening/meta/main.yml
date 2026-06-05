@@ -1,0 +1,17 @@
+---
+galaxy_info:
+  author: theolujay
+  description: Kernel hardening for Appa-managed hosts
+  license: MIT
+  min_ansible_version: "2.18"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - all
+  galaxy_tags:
+    - kernel
+    - security
+    - hardening
+    - sysctl
+
+dependencies: []
