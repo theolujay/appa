@@ -7,23 +7,31 @@ import (
 )
 
 func NewApp() *cobra.Command {
-	root := &cobra.Command{
+	rootCmd := &cobra.Command{
 		Use:   "appa",
 		Short: "Appa CLI -- manage your Appa deployment platform",
-		Long: `A CLI for managing Appa instances. Create instance profiles,
-run preflight checks, provision remote servers via Ansible, and
-manage your Appa Stack.`,
+		Long: `
+			Appa CLI is the control surface for provisioning and operating self-hosted
+			Appa Server instances. It handles host-level configuration, pre-deployment
+			checks, security hardening, and remote lifecycle management of your server.
+
+			Typical setup workflow:
+			1. Initialize a new local profile: appa instance init <name>
+			2. Configure connection target:    appa instance set-host <name> root@<ip>
+			3. Validate remote environment:    appa preflight <name>
+			4. Hardened stack deployment:      appa setup <name>
+  		`,
 		Version: vcs.Version(),
 	}
 
-	root.AddCommand(commands.InstanceCmd())
-	root.AddCommand(commands.PreflightCmd())
-	root.AddCommand(commands.SetupCmd())
-	root.AddCommand(commands.ApplyCmd())
-	root.AddCommand(commands.StatusCmd())
-	root.AddCommand(commands.LogsCmd())
-	root.AddCommand(commands.RestartCmd())
-	root.AddCommand(commands.UpgradeCmd())
+	rootCmd.AddCommand(commands.InstanceCmd())
+	rootCmd.AddCommand(commands.PreflightCmd())
+	rootCmd.AddCommand(commands.SetupCmd())
+	rootCmd.AddCommand(commands.ApplyCmd())
+	rootCmd.AddCommand(commands.StatusCmd())
+	rootCmd.AddCommand(commands.LogsCmd())
+	rootCmd.AddCommand(commands.RestartCmd())
+	rootCmd.AddCommand(commands.UpgradeCmd())
 
-	return root
+	return rootCmd
 }
