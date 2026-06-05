@@ -86,7 +86,13 @@ check_bin_dir() {
 
 # --- Defaults ---
 VERSION="${APPA_VERSION:-}"
-BIN_DIR="${APPA_INSTALL_DIR:-/usr/local/bin}"
+BIN_DIR="${APPA_INSTALL_DIR:-}"
+if [ -z "$BIN_DIR" ]; then
+  for dir in "$HOME/.local/bin" "$HOME/bin" "/usr/local/bin"; do
+    test_writeable "$dir" && { BIN_DIR="$dir"; break; }
+  done
+  [ -n "$BIN_DIR" ] || BIN_DIR="/usr/local/bin"
+fi
 PLATFORM="$(detect_platform)"
 ARCH="$(detect_arch)"
 FORCE=""
@@ -186,10 +192,23 @@ download "$checksums" "$CHECKSUM_URL"
 
 # --- Verify ---
 info "Verifying checksum..."
-if has sha256sum; then
-  (cd "$(dirname "$archive")" && sha256sum --ignore-missing --check "$checksums" 2>/dev/null)
-elif has shasum; then
-  (cd "$(dirname "$archive")" && shasum --algorithm 256 --ignore-missing --check "$checksums" 2>/dev/null)
+expected="$(grep -m1 -w "$BINARY" "$checksums" | cut -d' ' -f1 || true)"
+if [ -n "$expected" ] && has sha256sum; then
+  actual="$(sha256sum "$archive" | cut -d' ' -f1)"
+  if [ "$actual" != "$expected" ]; then
+    error "Checksum mismatch for $BINARY"
+    info "Expected: $expected"
+    info "Actual:   $actual"
+    exit 1
+  fi
+elif [ -n "$expected" ] && has shasum; then
+  actual="$(shasum --algorithm 256 "$archive" | cut -d' ' -f1)"
+  if [ "$actual" != "$expected" ]; then
+    error "Checksum mismatch for $BINARY"
+    info "Expected: $expected"
+    info "Actual:   $actual"
+    exit 1
+  fi
 else
   warn "No SHA-256 tool found; skipping checksum verification"
 fi
