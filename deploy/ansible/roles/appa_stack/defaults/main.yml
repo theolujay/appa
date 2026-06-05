@@ -1,9 +1,9 @@
 ---
 appa_stack_dir: /opt/appa
 
-# Container images
-appa_api_image: ghcr.io/theolujay/appa-api:latest
-appa_ui_image: ghcr.io/theolujay/appa-ui:latest
+# Container images (version set via appa_version extra_var, defaults to latest)
+appa_api_image: ghcr.io/theolujay/appa-api:{{ appa_version | default('latest') }}
+appa_ui_image: ghcr.io/theolujay/appa-ui:{{ appa_version | default('latest') }}
 caddy_image: caddy:2.11.2-alpine
 buildkit_image: moby/buildkit:v0.29.0
 postgres_image: postgres:18.3-bookworm

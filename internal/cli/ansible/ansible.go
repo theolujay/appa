@@ -57,13 +57,18 @@ func GenerateInventory(p config.Profile, dest string) error {
 	})
 }
 
-// AnsibleDir returns the base path for Ansible configuration files, relative to the project root.
+// AnsibleDir returns the base path for Ansible configuration files.
+// Files are embedded in the binary and extracted to ~/.appa/ansible/ on first use.
 func AnsibleDir() string {
-	return filepath.Join("deploy", "ansible")
+	return ansibleExtractedDir()
 }
 
-// ensureDeps installs external roles from requirements.yml if they're missing.
+// ensureDeps extracts embedded Ansible files to disk and installs external
+// Galaxy roles from requirements.yml.
 func ensureDeps() error {
+	if err := ensureExtracted(); err != nil {
+		return fmt.Errorf("extract ansible files: %w", err)
+	}
 	reqPath := filepath.Join(AnsibleDir(), "requirements.yml")
 	if _, err := os.Stat(reqPath); os.IsNotExist(err) {
 		return nil

@@ -150,6 +150,8 @@ build/api:
 ## build/cli: build the cmd/cli application
 .PHONY: build/cli
 build/cli:
+	@echo 'Generating embedded files...'
+	go generate ./internal/cli/ansible/
 	@echo 'Building cmd/cli...'
 	@go build -ldflags='-s' -o=./bin/appa ./cmd/cli
 	@GOOS=linux GOARCH=amd64 go build -ldflags='-s' -o=./bin/linux_amd64/appa ./cmd/cli

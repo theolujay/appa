@@ -3,6 +3,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 	"github.com/theolujay/appa/internal/cli/commands"
+	"github.com/theolujay/appa/internal/vcs"
 )
 
 func NewApp() *cobra.Command {
@@ -12,6 +13,7 @@ func NewApp() *cobra.Command {
 		Long: `A CLI for managing Appa instances. Create instance profiles,
 run preflight checks, provision remote servers via Ansible, and
 manage your Appa Stack.`,
+		Version: vcs.Version(),
 	}
 
 	root.AddCommand(commands.InstanceCmd())

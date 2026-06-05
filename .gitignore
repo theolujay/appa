@@ -8,6 +8,8 @@
 *.so
 *.dylib
 bin/
+cli
+api
 
 # Test binary, built with `go test -c`
 *.test
@@ -56,6 +58,9 @@ deploy/ansible/.ansible/
 
 # External Galaxy roles — managed by requirements.yml
 deploy/ansible/roles/geerlingguy.docker/
+
+# Build artifact from go:generate (embed copy of deploy/ansible/)
+internal/cli/ansible/_embed/
 
 # Molecule auto-generated role symlinks (created by molecule prerun or manually)
 deploy/ansible/roles/*/molecule/*/roles/

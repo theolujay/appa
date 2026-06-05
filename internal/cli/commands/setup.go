@@ -12,6 +12,7 @@ import (
 	"github.com/theolujay/appa/internal/cli/config"
 	"github.com/theolujay/appa/internal/cli/output"
 	"github.com/theolujay/appa/internal/cli/ssh"
+	"github.com/theolujay/appa/internal/vcs"
 )
 
 // SetupCmd returns a command that performs the first-time provisioning of an Appa instance.
@@ -112,6 +113,7 @@ func setupFunc(args []string, force bool, tags, skipTags string) error {
 
 	extraVars := map[string]any{
 		"appa_instance_domain": p.Domain,
+		"appa_version":         vcs.Version(),
 		"cloudflare_token":     p.CloudflareToken,
 		"smtp_host":            p.SMTPHost,
 		"smtp_port":            p.SMTPPort,
@@ -196,6 +198,7 @@ func applyFunc(args []string, tags, skipTags string) error {
 
 	extraVars := map[string]any{
 		"appa_instance_domain": p.Domain,
+		"appa_version":         vcs.Version(),
 		"cloudflare_token":     p.CloudflareToken,
 		"smtp_host":            p.SMTPHost,
 		"smtp_port":            p.SMTPPort,
