@@ -107,7 +107,7 @@ done
 
 if [ -n "$HELP" ]; then
   cat <<EOF
-Install ${REPO_NAME} — curl -fsSL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/scripts/install.sh | sh
+Install ${REPO_NAME} — curl -fsSL https://appa.${REPO_OWNER}.dev/install.sh | sh
 
 Options:
   --release VERSION     Install a specific version (default: latest)
