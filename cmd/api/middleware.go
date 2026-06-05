@@ -235,7 +235,7 @@ func (app *application) metrics(next http.Handler) http.Handler {
 
 // The metricsResponseWriter type wraps an existing http.ResponseWriter
 // and also contains a field for recording the response status code, and
-// a boolean flag to indicate whether the reponse deaders have already
+// a boolean flag to indicate whether the response headers have already
 // been written.
 type metricsResponseWriter struct {
 	wrapped       http.ResponseWriter
@@ -245,7 +245,7 @@ type metricsResponseWriter struct {
 
 // newMetricsResponseWriter() returns a new metricsResponseWriter instance
 // which wraps a given http.ResponseWriter and has a status code of 200
-// (which is the status code that Go will send in a HTTP repsonse by default).
+// (which is the status code that Go will send in a HTTP response by default).
 func newMetricsResponseWriter(w http.ResponseWriter) *metricsResponseWriter {
 	return &metricsResponseWriter{
 		wrapped:    w,

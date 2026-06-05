@@ -23,7 +23,7 @@ type envelope map[string]any
 // It doesn't use any dependency from `application`, but it's good
 // practice anyway to maintain consistency in code structure.
 func (app *application) readIDParam(r *http.Request) (int64, error) {
-	// Interpolated URL paramters are stored in the request context
+	// Interpolated URL parameters are stored in the request context
 	params := httprouter.ParamsFromContext(r.Context())
 
 	// Convert the string value (returned by ByName) of the ID into base 10 integer
@@ -32,7 +32,7 @@ func (app *application) readIDParam(r *http.Request) (int64, error) {
 	// invalid, so throw notFound
 	id, err := strconv.ParseInt(params.ByName("id"), 10, 64)
 	if err != nil {
-		return 0, errors.New("invalid id paramter")
+		return 0, errors.New("invalid id parameter")
 	}
 
 	return id, nil
@@ -220,7 +220,7 @@ func (app *application) readInt(qs url.Values, key string, defaultValue int, v *
 }
 
 // The background() helper accepts an arbitrary function as a parameter
-// to run withing a recover-able goroutine
+// to run within a recover-able goroutine
 func (app *application) background(fn func()) {
 	app.wg.Go(func() {
 		defer func() {

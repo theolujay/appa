@@ -38,8 +38,8 @@ func (app *application) serve() error {
 		// NOTE: a buffered channel is used here because signal.Notify() does
 		// not wait for a receiver to be available when sending a signal to the
 		// 'quit' channel. With an unbuffered channel, a signal could be 'missed'
-		// if the 'quit' channl is not ready to recieve tat the exact moment the
-		// sgnal is sent. A buffered channel avoids this problem and ensures we
+		// if the 'quit' channel is not ready to receive at the exact moment the
+		// signal is sent. A buffered channel avoids this problem and ensures we
 		// never miss a signal.
 		quit := make(chan os.Signal, 1)
 
