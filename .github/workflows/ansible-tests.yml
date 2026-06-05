@@ -34,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --all-extras --dev
       - name: Run ansible-lint
-        run: ansible-lint --profile production
+        run: uv run ansible-lint --profile production
 
   molecule:
     runs-on: ubuntu-latest
@@ -73,7 +73,7 @@ jobs:
         run: uv sync --locked --all-extras --dev
       - name: Install ansible collections
         run: |
-          ansible-galaxy collection install community.general
-          ansible-galaxy collection install ansible.posix
+          uv run ansible-galaxy collection install community.general
+          uv run ansible-galaxy collection install ansible.posix
       - name: Run molecule test
-        run: molecule test
+        run: uv run molecule test
