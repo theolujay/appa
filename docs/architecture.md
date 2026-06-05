@@ -8,7 +8,8 @@ PostgreSQL, BuildKit, Railpack, Docker, Caddy, and a React dashboard.
 
 This document answers architectural questions. Setup and contribution guidelines
 live in [CONTRIBUTING.md](../CONTRIBUTING.md). Delivery phases live in
-[ROADMAP.md](./roadmap.md).
+[ROADMAP.md](./roadmap.md). Research notes, data model, state machines, and
+external references live in [REFERENCE.md](./reference.md).
 
 ## Glossary
 
@@ -112,6 +113,7 @@ Progressive configuration: SSH target first, then domain, Cloudflare, SMTP, etc.
 11. CLI is not a second deployment engine — project deploys go through the API.
 12. `setup`/`apply` are idempotent.
 13. Operator secrets are never logged.
+14. Local instance profiles and credentials are encrypted using Ansible Vault (planned).
 
 ## Failure Model
 
@@ -135,3 +137,4 @@ Progressive configuration: SSH target first, then domain, Cloudflare, SMTP, etc.
 - **WebSocket hub pattern** — Single goroutine for registration/broadcast; DB as durable store.
 - **Wildcard TLS via DNS-01** — HTTP-01 doesn't support wildcards; Cloudflare + caddy-dns plugin.
 - **CLI-managed provisioning** — CLI owns profiles/preflight/Ansible gen; Ansible owns host mutations; API owns deployments.
+- **Ansible Vault for Local Secrets** (Planned) — Instance profiles and operator configuration (including passwords, tokens, and SSH keys) are encrypted on the operator's disk using Ansible Vault to protect secrets at rest.

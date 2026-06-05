@@ -104,3 +104,10 @@ same CLI can become a developer workflow surface for projects:
 A root `.mise.toml` should eventually pin Go and project tooling versions for
 contributors and CI. Railpack already uses Mise internally for application
 runtime installation; Appa only needs Mise for its own development environment.
+
+### Encrypted Instance Profiles
+
+Currently, the CLI stores instance profiles in plaintext within `~/.appa/instances/<name>/config.toml`. To prevent unauthorized access to sensitive remote server details, SSH configurations, database credentials, and operator keys on the operator's machine, we plan to:
+- Integrate Ansible Vault-compatible encryption directly into the Appa CLI.
+- Securely encrypt the instance config profiles using a vault password (provided via terminal prompt, environment variable, or key file).
+- Allow operators to safely store, version control, or share profile configurations without exposing passwords, database credentials, or SSH private keys.
