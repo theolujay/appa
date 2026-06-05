@@ -19,3 +19,5 @@ provisioner:
   playbooks:
     converge: converge.yml
     verify: verify.yml
+  env:
+    ANSIBLE_ROLES_PATH: ../../../

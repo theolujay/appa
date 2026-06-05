@@ -21,6 +21,7 @@ provisioner:
     converge: converge.yml
     verify: verify.yml
   env:
+    ANSIBLE_ROLES_PATH: ../../../
     ANSIBLE_REMOTE_TMP: /tmp/.ansible
 
 lint: |-
