@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/theolujay/appa/internal/data"
-	"github.com/theolujay/appa/internal/validator"
+	vd "github.com/theolujay/appa/internal/validator"
 )
 
 // registerUserHandler() creates a new user in the database, generates an
@@ -37,10 +37,8 @@ func (app *application) registerUserHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	v := validator.New()
-
-	if data.ValidateUser(v, user); !v.Valid() {
-		app.failedValidationResponse(w, r, v.Errors)
+	if errs := data.ValidateUser(user); len(errs) > 0 {
+		app.failedValidationResponse(w, r, errs)
 		return
 	}
 
@@ -48,8 +46,9 @@ func (app *application) registerUserHandler(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		switch {
 		case errors.Is(err, data.ErrDuplicateEmail):
-			v.AddError("email", "a user with this email already exists")
-			app.failedValidationResponse(w, r, v.Errors)
+			app.failedValidationResponse(w, r, vd.Error{
+				"email": "a user with this email already exists",
+			})
 		default:
 			app.serverErrorResponse(w, r, err)
 		}
@@ -95,10 +94,8 @@ func (app *application) activateUserHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	v := validator.New()
-
-	if data.ValidateTokenPlaintext(v, input.TokenPlaintext); !v.Valid() {
-		app.failedValidationResponse(w, r, v.Errors)
+	if errs := data.ValidateTokenPlaintext(input.TokenPlaintext); len(errs) > 0 {
+		app.failedValidationResponse(w, r, errs)
 		return
 	}
 
@@ -109,8 +106,9 @@ func (app *application) activateUserHandler(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		switch {
 		case errors.Is(err, data.ErrRecordNotFound):
-			v.AddError("token", "invalid or expired activation token")
-			app.failedValidationResponse(w, r, v.Errors)
+			app.failedValidationResponse(w, r, vd.Error{
+				"token": "invalid or expired activation token",
+			})
 		default:
 			app.serverErrorResponse(w, r, err)
 		}

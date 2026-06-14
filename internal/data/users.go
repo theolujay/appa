@@ -5,9 +5,10 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"errors"
+	"maps"
 	"time"
 
-	"github.com/theolujay/appa/internal/validator"
+	vd "github.com/theolujay/appa/internal/validator"
 
 	"github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
@@ -73,25 +74,31 @@ func (p *password) Matches(plaintextPassword string) (bool, error) {
 	return true, nil
 }
 
-func ValidateEmail(v *validator.Validator, email string) {
+func ValidateEmail(email string) vd.Error {
+	v := vd.New()
 	v.Check(email != "", "email", "must be provided")
-	v.Check(validator.Matches(email, validator.EmailRX), "email", "must be a valid email address")
+	v.Check(vd.Matches(email, vd.EmailRX), "email", "must be a valid email address")
+	return v.Errors
 }
 
-func ValidatePasswordPlaintext(v *validator.Validator, password string) {
+func ValidatePasswordPlaintext(password string) vd.Error {
+	v := vd.New()
 	v.Check(password != "", "password", "must be provided")
 	v.Check(len(password) >= 8, "password", "must be at least 8 bytes long")
 	v.Check(len(password) <= 72, "password", "must not be more than 72 bytes long")
+
+	return v.Errors
 }
 
-func ValidateUser(v *validator.Validator, user *User) {
+func ValidateUser(user *User) vd.Error {
+	v := vd.New()
 	v.Check(user.Name != "", "name", "must be provided")
 	v.Check(len(user.Name) <= 500, "name", "must not be more than 500 bytes long")
 
-	ValidateEmail(v, user.Email)
+	maps.Copy(v.Errors, ValidateEmail(user.Email))
 
 	if user.Password.plaintext != nil {
-		ValidatePasswordPlaintext(v, *user.Password.plaintext)
+		maps.Copy(v.Errors, ValidatePasswordPlaintext(*user.Password.plaintext))
 	}
 
 	// If the password hash is ever nil, this will be due to a logic error in the
@@ -102,6 +109,7 @@ func ValidateUser(v *validator.Validator, user *User) {
 	if user.Password.hash == nil {
 		panic("missing password hash for user")
 	}
+	return v.Errors
 }
 
 // Insert a new record in the database for the user. Note that the id, created_at

@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/julienschmidt/httprouter"
-	"github.com/theolujay/appa/internal/validator"
+	vd "github.com/theolujay/appa/internal/validator"
 )
 
 type envelope map[string]any
@@ -203,20 +203,17 @@ func (app *application) readString(qs url.Values, key, defaultValue string) stri
 // could be found, it returns the provided default value. If the value
 // couldn't be converted to an integer, then we record an error message
 // in the provided Validator instance.
-func (app *application) readInt(qs url.Values, key string, defaultValue int, v *validator.Validator) int {
+func (app *application) readInt(qs url.Values, key string, defaultValue int) (int, vd.Error) {
+
 	s := qs.Get(key)
-
 	if s == "" {
-		return defaultValue
+		return defaultValue, nil
 	}
-
 	i, err := strconv.Atoi(s)
 	if err != nil {
-		v.AddError(key, "must be an integer value")
-		return defaultValue
+		return defaultValue, vd.Error{key: "must be an integer value"}
 	}
-
-	return i
+	return i, nil
 }
 
 // The background() helper accepts an arbitrary function as a parameter

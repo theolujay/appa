@@ -2,11 +2,11 @@ package main
 
 import (
 	"errors"
+	"maps"
 	"net/http"
 	"time"
 
 	"github.com/theolujay/appa/internal/data"
-	"github.com/theolujay/appa/internal/validator"
 )
 
 // createAuthenticationTokenHandler() verifies the user's email and
@@ -23,13 +23,11 @@ func (app *application) createAuthenticationTokenHandler(w http.ResponseWriter, 
 		return
 	}
 
-	v := validator.New()
+	errs := data.ValidateEmail(input.Email)
+	maps.Copy(errs, data.ValidatePasswordPlaintext(input.Password))
 
-	data.ValidateEmail(v, input.Email)
-	data.ValidatePasswordPlaintext(v, input.Password)
-
-	if !v.Valid() {
-		app.failedValidationResponse(w, r, v.Errors)
+	if len(errs) > 0 {
+		app.failedValidationResponse(w, r, errs)
 		return
 	}
 

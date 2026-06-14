@@ -7,7 +7,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/theolujay/appa/internal/validator"
+	vd "github.com/theolujay/appa/internal/validator"
 )
 
 const (
@@ -29,9 +29,11 @@ type TokenModel struct {
 
 // Check that the plaintext token has been provided
 // and is exactly 26 bytes long.
-func ValidateTokenPlaintext(v *validator.Validator, tokenPlaintext string) {
+func ValidateTokenPlaintext(tokenPlaintext string) vd.Error {
+	v := vd.New()
 	v.Check(tokenPlaintext != "", "token", "must be provided")
 	v.Check(len(tokenPlaintext) == 26, "token", "must be 26 bytes long")
+	return v.Errors
 }
 
 func generateToken(userID int64, ttl time.Duration, scope string) *Token {

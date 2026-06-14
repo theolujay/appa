@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/theolujay/appa/internal/data"
-	"github.com/theolujay/appa/internal/validator"
 	"github.com/tomasen/realip"
 	"golang.org/x/time/rate"
 )
@@ -325,10 +324,8 @@ func (app *application) authenticate(next http.Handler) http.Handler {
 			return
 		}
 
-		v := validator.New()
-
-		if data.ValidateTokenPlaintext(v, token); !v.Valid() {
-			app.logger.Warn("invalid token format", "token", token)
+		if errs := data.ValidateTokenPlaintext(token); len(errs) > 0 {
+			app.logger.Warn("invalid token format", "token", errs)
 			app.invalidAuthenticationTokenResponse(w, r)
 			return
 		}

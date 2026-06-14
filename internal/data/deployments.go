@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/theolujay/appa/internal/validator"
+	vd "github.com/theolujay/appa/internal/validator"
 )
 
 const (
@@ -46,13 +46,15 @@ type DeploymentUpdate struct {
 	URL      *string
 }
 
-func ValidateDeployment(v *validator.Validator, d *Deployment) {
+func ValidateDeployment(d *Deployment) vd.Error {
+	v := vd.New()
 	v.Check(d.Source != "", "source", "must be provided")
 	v.Check(len(d.Source) <= 500, "source", "must not be more than 500 bytes long")
 	if d.EnvVars != nil && *d.EnvVars != "" {
 		i := validateEnvVars(*d.EnvVars)
 		v.Check(i == 0, "env_vars", fmt.Sprintf("invalid key-value pair at line %d", i))
 	}
+	return v.Errors
 }
 
 func validateEnvVars(e string) int {

@@ -5,13 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/google/uuid"
 	"github.com/theolujay/appa/internal/data"
-	"github.com/theolujay/appa/internal/validator"
+	vd "github.com/theolujay/appa/internal/validator"
 )
 
 func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.Request) {
@@ -36,10 +37,8 @@ func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.R
 		deployment.UserID = &user.ID
 	}
 
-	v := validator.New()
-
-	if data.ValidateDeployment(v, deployment); !v.Valid() {
-		app.failedValidationResponse(w, r, v.Errors)
+	if errs := data.ValidateDeployment(deployment); len(errs) > 0 {
+		app.failedValidationResponse(w, r, errs)
 		return
 	}
 
@@ -202,19 +201,32 @@ func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Re
 		data.Filters
 	}
 
-	v := validator.New()
 	qs := r.URL.Query()
 
 	input.Status = app.readString(qs, "status", "")
 
-	input.Filters.Page = app.readInt(qs, "page", 1, v)
-	input.Filters.PageSize = app.readInt(qs, "page_size", 20, v)
+	errs := vd.Error{}
+	page, vdErr := app.readInt(qs, "page", 1)
+	if vdErr != nil {
+		maps.Copy(errs, vdErr)
+	}
+	pageSize, vdErr := app.readInt(qs, "page_size", 20)
+	if vdErr != nil {
+		maps.Copy(errs, vdErr)
+	}
 
+	input.Filters.Page = page
+	input.Filters.PageSize = pageSize
 	input.Filters.Sort = app.readString(qs, "sort", "id")
 	input.Filters.SortSafelist = []string{"id", "status"}
 
-	if data.ValidateFilters(v, input.Filters); !v.Valid() {
-		app.failedValidationResponse(w, r, v.Errors)
+	vdErr = data.ValidateFilters(input.Filters)
+	if vdErr != nil {
+		maps.Copy(errs, vdErr)
+	}
+
+	if len(errs) > 0 {
+		app.failedValidationResponse(w, r, errs)
 		return
 	}
 
