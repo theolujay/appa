@@ -3,6 +3,7 @@ package pipeline
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -148,9 +149,9 @@ func (p *Pipeline) Build(ctx context.Context, id int64, buildDir string) (string
 }
 
 func (p *Pipeline) streamLogs(id int64, phase string, r io.Reader) {
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		line := scanner.Text()
+	s := bufio.NewScanner(r)
+	for s.Scan() {
+		line := s.Text()
 
 		// First persist. If the hub publish fails for any reason, the log
 		// lines still live in the database for scroll-back
@@ -160,6 +161,12 @@ func (p *Pipeline) streamLogs(id int64, phase string, r io.Reader) {
 		}
 
 		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: line})
+	}
+
+	if s.Err() != nil {
+		if !errors.Is(s.Err(), io.EOF) {
+			fmt.Printf("log stream error: %v\n", s.Err())
+		}
 	}
 }
 

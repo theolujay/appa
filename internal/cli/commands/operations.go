@@ -67,6 +67,8 @@ func UpgradeCmd() *cobra.Command {
 	return cmd
 }
 
+// statusFunc checks and displays the health status of an instance, including
+// SSH connectivity, API health, Docker Compose services, and disk usage.
 func statusFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
 	if !config.Exists(name) {
@@ -147,6 +149,8 @@ func statusFunc(_ *cobra.Command, args []string) error {
 	return nil
 }
 
+// logsFunc streams logs from Docker Compose services,
+// with optional service filtering and line count limits.
 func logsFunc(args []string, service string, tail int) error {
 	name := args[0]
 	if !config.Exists(name) {
@@ -179,6 +183,8 @@ func logsFunc(args []string, service string, tail int) error {
 	return c.Run()
 }
 
+// restartFunc restarts Appa Stack services via Docker Compose,
+// optionally limiting to a specific service.
 func restartFunc(args []string, service string) error {
 	name := args[0]
 	if !config.Exists(name) {
@@ -211,6 +217,9 @@ func restartFunc(args []string, service string) error {
 	return nil
 }
 
+// upgradeFunc upgrades the Appa Stack by pulling latest images
+// and recreating services, with optional pinning to a specific
+// version tag. It waits for the API to become healthy after upgrade.
 func upgradeFunc(args []string, version string) error {
 	name := args[0]
 	if !config.Exists(name) {

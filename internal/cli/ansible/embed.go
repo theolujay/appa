@@ -11,6 +11,8 @@ import (
 //go:embed all:_embed
 var ansibleFS embed.FS
 
+// appaConfigDir returns the root directory for
+// Appa configuration and data.
 func appaConfigDir() string {
 	if d := os.Getenv("APPA_CONFIG_DIR"); d != "" {
 		return d
@@ -19,10 +21,14 @@ func appaConfigDir() string {
 	return filepath.Join(home, ".appa")
 }
 
+// ansibleExtractedDir returns the path where
+// embedded Ansible files are stored.
 func ansibleExtractedDir() string {
 	return filepath.Join(appaConfigDir(), "ansible")
 }
 
+// ensureExtracted extracts embedded Ansible
+// assetsto the local filesystem if missing.
 func ensureExtracted() error {
 	dir := ansibleExtractedDir()
 	marker := filepath.Join(dir, "playbooks", "deploy-stack.yml")

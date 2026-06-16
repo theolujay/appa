@@ -3,6 +3,7 @@ package pipeline
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -229,6 +230,11 @@ func caddyLogFilter(r io.Reader) io.Reader {
 		for s.Scan() {
 			if !strings.Contains(s.Text(), `"logger":"http.log.access`) {
 				fmt.Fprintln(pw, s.Text())
+			}
+		}
+		if s.Err() != nil {
+			if !errors.Is(s.Err(), io.EOF) {
+				fmt.Println(pw, s.Err())
 			}
 		}
 		pw.Close()

@@ -14,12 +14,53 @@ NO_COLOR="$(tput sgr0 2>/dev/null || printf '')"
 
 CURL_RETRY_OPTS="--retry 3 --retry-all-errors --retry-delay 2"
 
-info()  { printf '%s\n' "${BOLD}${GREY}>${NO_COLOR} $*"; }
-warn()  { printf '%s\n' "${YELLOW}! $*${NO_COLOR}"; }
-error() { printf '%s\n' "${RED}x $*${NO_COLOR}" >&2; }
+info()      { printf '%s\n' "${BOLD}${GREY}>${NO_COLOR} $*"; }
+warn()      { printf '%s\n' "${YELLOW}! $*${NO_COLOR}"; }
+error()     { printf '%s\n' "${RED}x $*${NO_COLOR}" >&2; }
 completed() { printf '%s\n' "${GREEN}✓${NO_COLOR} $*"; }
 
 has() { command -v "$1" >/dev/null 2>&1; }
+
+# --- Spinner ---
+_spin_pid=""
+
+_spin_cleanup() {
+  [ -z "$_spin_pid" ] && { printf '\r\033[2K'; return; }
+  kill "$_spin_pid" 2>/dev/null || true
+  wait "$_spin_pid" 2>/dev/null || true
+  _spin_pid=""
+  printf '\r\033[2K'
+  tput cnorm 2>/dev/null || true
+}
+
+trap '_spin_cleanup' EXIT
+trap '_spin_cleanup; exit 130' INT
+
+spin_start() {
+  # When stdout is not a TTY (e.g. piped), fall back to a static info line
+  if [ ! -t 1 ]; then
+    info "$*"
+    return
+  fi
+  _spin_cleanup
+  tput civis 2>/dev/null || true
+  local msg="$*"
+  (
+    frames=( '⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏' )
+    i=0
+    while true; do
+      printf '\r  %s%s%s  %s' "${BLUE}" "${frames[$i]}" "${NO_COLOR}" "$msg"
+      i=$(( (i + 1) % 10 ))
+      sleep 0.08
+    done
+  ) &
+  _spin_pid=$!
+}
+
+spin_stop() {
+  _spin_cleanup
+}
+# --------------------------------------------------
 
 test_writeable() {
   mkdir -p "$1" 2>/dev/null
@@ -131,10 +172,11 @@ fi
 
 # --- Resolve version ---
 if [ -z "$VERSION" ]; then
-  info "Fetching latest release..."
+  spin_start "Fetching latest version..."
   VERSION="$(curl --fail --silent --show-error ${CURL_RETRY_OPTS} \
     "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest" \
     | grep -o '"tag_name": "v.*"' | cut -d'"' -f4 | cut -c2-)"
+  spin_stop
 
   if [ -z "$VERSION" ]; then
     error "Failed to detect latest version from GitHub API"
@@ -179,60 +221,69 @@ else
 fi
 
 check_bin_dir "$BIN_DIR"
+printf '\n'
 
 # --- Download ---
 archive="$(get_tmpfile "$BINARY")"
 checksums="$(get_tmpfile "checksums.txt")"
 
-info "Downloading ${REPO_NAME} v${VERSION} for ${PLATFORM}/${ARCH}..."
+spin_start "Downloading ${REPO_NAME} v${VERSION} (${PLATFORM}/${ARCH})..."
 download "$archive" "$URL"
+spin_stop
 
-info "Downloading checksums..."
+spin_start "Downloading checksums..."
 download "$checksums" "$CHECKSUM_URL"
+spin_stop
 
 # --- Verify ---
-info "Verifying checksum..."
+spin_start "Verifying checksum..."
 expected="$(grep -m1 -w "$BINARY" "$checksums" | cut -d' ' -f1 || true)"
+actual=""
+verified=0
+
 if [ -n "$expected" ] && has sha256sum; then
   actual="$(sha256sum "$archive" | cut -d' ' -f1)"
-  if [ "$actual" != "$expected" ]; then
-    error "Checksum mismatch for $BINARY"
-    info "Expected: $expected"
-    info "Actual:   $actual"
-    exit 1
-  fi
+  verified=1
 elif [ -n "$expected" ] && has shasum; then
   actual="$(shasum --algorithm 256 "$archive" | cut -d' ' -f1)"
-  if [ "$actual" != "$expected" ]; then
-    error "Checksum mismatch for $BINARY"
-    info "Expected: $expected"
-    info "Actual:   $actual"
-    exit 1
-  fi
-else
+  verified=1
+fi
+spin_stop
+
+if [ "$verified" = "0" ]; then
   warn "No SHA-256 tool found; skipping checksum verification"
+elif [ "$actual" != "$expected" ]; then
+  error "Checksum mismatch for $BINARY"
+  info "Expected: $expected"
+  info "Actual:   $actual"
+  exit 1
 fi
 
 chmod 755 "$archive"
 
 # --- Install ---
+spin_start "Installing to ${BIN_DIR}/${REPO_NAME}..."
 ${SUDO} mkdir -p "$BIN_DIR"
 ${SUDO} cp "$archive" "${BIN_DIR}/${REPO_NAME}"
+spin_stop
 
 # --- Cleanup ---
 rm -f "$archive" "$checksums"
 
 # --- Done ---
 printf '\n'
-printf "${GREEN}"
+printf '%s' "${BLUE}"
 cat << 'EOF'
-     _                      
-    / \   _ __  _ __   __ _ 
-   / _ \ | '_ \| '_ \ / _` |
-  / ___ \| |_) | |_) | (_| |
- /_/   \_\ .__/| .__/ \__,_|
-         |_|   |_|          
+
+      _|_|
+    _|    _|  _|_|_|    _|_|_|      _|_|_|
+    _|_|_|_|  _|    _|  _|    _|  _|    _|
+    _|    _|  _|    _|  _|    _|  _|    _|
+    _|    _|  _|_|_|    _|_|_|      _|_|_|
+              _|        _|
+              _|        _|
+
 EOF
-printf "${NO_COLOR}"
+printf '%s' "${NO_COLOR}"
 completed "${REPO_NAME} ${GREEN}${VERSION}${NO_COLOR} installed to ${BOLD}${GREEN}${BIN_DIR}/${REPO_NAME}${NO_COLOR}"
 completed "Run ${BOLD}${REPO_NAME} --help${NO_COLOR} to get started"

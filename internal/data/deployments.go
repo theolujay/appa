@@ -38,6 +38,8 @@ type Deployment struct {
 	Version   int
 }
 
+// DeploymentUpdate is a container that helps to determine if a column
+// should be updated in the database by leveraging a nil pointer.
 type DeploymentUpdate struct {
 	Status   *string
 	ImageTag *string
@@ -125,10 +127,10 @@ func (dm *DeploymentModel) Get(id int64) (*Deployment, error) {
 	return &d, nil
 }
 
-func (dm *DeploymentModel) GetAllForUser(id int64, status string, filters Filters) ([]*Deployment, Metadata, error) {
+func (dm *DeploymentModel) GetAllForUser(id int64, status string, filters Filters) ([]Deployment, Metadata, error) {
 	totalRecords := 0
 	metadata := Metadata{}
-	deployments := []*Deployment{}
+	deployments := []Deployment{}
 
 	query := fmt.Sprintf(`
 		SELECT count(*) OVER(), id, user_id, source, status, image_tag, address, env_vars, url, created_at, version
@@ -148,9 +150,9 @@ func (dm *DeploymentModel) GetAllForUser(id int64, status string, filters Filter
 	if err != nil {
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
-			return nil, metadata, err
+			return []Deployment{}, metadata, err
 		}
-		return nil, metadata, err
+		return []Deployment{}, metadata, err
 	}
 	defer rows.Close()
 
@@ -170,13 +172,13 @@ func (dm *DeploymentModel) GetAllForUser(id int64, status string, filters Filter
 			&d.Version,
 		)
 		if err != nil {
-			return nil, metadata, err
+			return []Deployment{}, metadata, err
 		}
-		deployments = append(deployments, &d)
+		deployments = append(deployments, d)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, metadata, err
+		return []Deployment{}, metadata, err
 	}
 
 	metadata = calculateMetadata(totalRecords, filters.Page, filters.PageSize)
@@ -257,7 +259,7 @@ func (dm *DeploymentModel) UpdateAndGet(id int64, u DeploymentUpdate) (*Deployme
 	}
 
 	if len(fields) == 0 {
-		return nil, nil
+		return &Deployment{}, nil
 	}
 
 	query += strings.Join(fields, ", ")
@@ -282,6 +284,9 @@ func (dm *DeploymentModel) UpdateAndGet(id int64, u DeploymentUpdate) (*Deployme
 		&d.CreatedAt,
 	)
 
-	return &d, err
+	if err != nil {
+		return &Deployment{}, err
+	}
+	return &d, nil
 
 }

@@ -37,6 +37,7 @@ var GUI_EDITORS = map[string]string{
 }
 
 // InstanceCmd returns the root command for managing Appa instance profiles.
+// It provides subcommands for initializing, editing, setting hosts, and listing profiles.
 func InstanceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "instance",
@@ -83,7 +84,9 @@ func instanceSetHostCmd() *cobra.Command {
 			return setHostFunc(args, identityFile)
 		},
 	}
-	cmd.Flags().StringVarP(&identityFile, "identity-file", "i", "", "Path to SSH private key")
+	cmd.Flags().StringVarP(
+		&identityFile, "identity-file", "i", "", "Path to SSH private key",
+	)
 	return cmd
 }
 
@@ -96,6 +99,7 @@ func instanceListCmd() *cobra.Command {
 	}
 }
 
+// initFunc handles the creation of a new instance profile with validation.
 func initFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
 	if config.Exists(name) {
@@ -111,6 +115,8 @@ func initFunc(_ *cobra.Command, args []string) error {
 	return nil
 }
 
+// editFunc handles opening an instance profile in the system editor for editing.
+// It supports validation and re-editing on invalid configuration.
 func editFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
 	if !config.Exists(name) {
@@ -184,6 +190,7 @@ func editFunc(_ *cobra.Command, args []string) error {
 	}
 }
 
+// setHostFunc sets the SSH target for an instance profile and tests the connection.
 func setHostFunc(args []string, identityFile string) error {
 	name, target := args[0], args[1]
 	if !config.Exists(name) {
@@ -214,10 +221,13 @@ func setHostFunc(args []string, identityFile string) error {
 	if ip != "" {
 		output.Success("Resolved %s -> %s", host, ip)
 	}
-	output.Success("SSH target set for %q: %s", name, ssh.Target(user, host, port))
+	output.Success(
+		"SSH target set for %q: %s", name, ssh.Target(user, host, port),
+	)
 	return nil
 }
 
+// listFunc displays all instance profiles and their current status.
 func listFunc(_ *cobra.Command, _ []string) error {
 	profiles, err := config.List()
 	if err != nil {
@@ -246,8 +256,8 @@ func listFunc(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-// parseTarget is a helper that splits an SSH connection string into its components.
-// It supports formats like "user@host" and "user@host:port".
+// parseTarget splits an SSH connection string into its components.
+// It supports formats like "user@host" and "user@host:port", defaulting to port 22.
 func parseTarget(target string) (user, host string, port int, err error) {
 	port = 22
 	at := strings.LastIndex(target, "@")

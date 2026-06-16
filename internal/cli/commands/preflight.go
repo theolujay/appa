@@ -21,6 +21,9 @@ func PreflightCmd() *cobra.Command {
 	}
 }
 
+// preflightFunc performs comprehensive preflight checks on a target instance,
+// validating SSH connectivity, OS compatibility, required ports, DNS resolution,
+// Docker installation status, and configuration requirements.
 func preflightFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
 	if !config.Exists(name) {
