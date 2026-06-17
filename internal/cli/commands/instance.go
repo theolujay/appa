@@ -123,16 +123,6 @@ func editFunc(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("profile %q not found", name)
 	}
 
-	originalProfile, err := config.Load(name)
-	if err != nil {
-		profilePath := config.ProfilePath(name)
-		return fmt.Errorf(
-			"failed to load profile for editing: %w\n\nPath: %s\n",
-			err,
-			profilePath,
-		)
-	}
-
 	editor := os.Getenv("APPA_EDITOR")
 	if editor == "" {
 		editor = os.Getenv("EDITOR")
@@ -158,7 +148,16 @@ func editFunc(_ *cobra.Command, args []string) error {
 	path := config.ProfilePath(name)
 	output.Section("Waiting for your editor to close %q config file...", name)
 
-	var currentProfile config.Profile
+	originalProfile, err := config.Load(name)
+	if err != nil {
+		profilePath := config.ProfilePath(name)
+		return fmt.Errorf(
+			"failed to load profile for editing: %w\n\nPath: %s",
+			err,
+			profilePath,
+		)
+	}
+
 	for {
 		cmd := exec.Command(editorPath, append(editorArgs, path)...)
 		cmd.Stdin = os.Stdin
@@ -169,7 +168,7 @@ func editFunc(_ *cobra.Command, args []string) error {
 			return fmt.Errorf("editor exited abnormally: %w", editorErr)
 		}
 
-		currentProfile, err = config.Load(name)
+		_, err = config.Load(name)
 		if err != nil {
 			if revertErr := config.Save(originalProfile); revertErr != nil {
 				return fmt.Errorf("failed to revert to original profile: %w", revertErr)
@@ -179,12 +178,11 @@ func editFunc(_ *cobra.Command, args []string) error {
 			var reply string
 			fmt.Scanln(&reply)
 			if reply == "n" || reply == "N" {
-				return fmt.Errorf("Edit aborted. Profile reverted to previous valid state")
+				return fmt.Errorf("edit aborted: profile reverted to previous valid state")
 			}
 			continue
 		}
 
-		originalProfile = currentProfile
 		output.Success("Profile %q updated", name)
 		return nil
 	}

@@ -21,7 +21,7 @@ var (
 var AnonymousUser = &User{}
 
 func (u *User) IsAnonymous() bool {
-	return u == AnonymousUser
+	return u == AnonymousUser || u == nil
 }
 
 type User struct {
@@ -35,7 +35,7 @@ type User struct {
 }
 
 type password struct {
-	plaintext *string
+	plaintext string
 	hash      []byte
 }
 
@@ -51,7 +51,7 @@ func (p *password) Set(plaintextPassword string) error {
 		return err
 	}
 
-	p.plaintext = &plaintextPassword
+	p.plaintext = plaintextPassword
 	p.hash = hash
 
 	return nil
@@ -97,8 +97,8 @@ func ValidateUser(user *User) vd.Error {
 
 	maps.Copy(v.Errors, ValidateEmail(user.Email))
 
-	if user.Password.plaintext != nil {
-		maps.Copy(v.Errors, ValidatePasswordPlaintext(*user.Password.plaintext))
+	if user.Password.plaintext != "" {
+		maps.Copy(v.Errors, ValidatePasswordPlaintext(user.Password.plaintext))
 	}
 
 	// If the password hash is ever nil, this will be due to a logic error in the

@@ -12,6 +12,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/moby/moby/client"
 	"github.com/theolujay/appa/internal/data"
 	"github.com/theolujay/appa/internal/hub"
 )
@@ -26,20 +27,26 @@ const (
 // Pipeline manages the deployment workflow for applications, including
 // code preparation, containerization, and traffic routing.
 type Pipeline struct {
-	deployment  *data.DeploymentModel
-	hub         *hub.Hub
-	router      *Router
-	mu          sync.Mutex
-	activeTasks map[int64]context.CancelFunc
+	deployment   *data.DeploymentModel
+	hub          *hub.Hub
+	router       *Router
+	mu           sync.Mutex
+	activeTasks  map[int64]context.CancelFunc
+	dockerClient *client.Client
 }
 
 // New creates a new Pipeline with the necessary models and WebSocket hub.
 func New(dm *data.DeploymentModel, h *hub.Hub, r *Router) *Pipeline {
+	c, err := client.New(client.FromEnv)
+	if err != nil {
+		panic(fmt.Errorf("failed to initialize docker client: %w", err))
+	}
 	return &Pipeline{
-		deployment:  dm,
-		hub:         h,
-		router:      r,
-		activeTasks: make(map[int64]context.CancelFunc),
+		deployment:   dm,
+		hub:          h,
+		router:       r,
+		activeTasks:  make(map[int64]context.CancelFunc),
+		dockerClient: c,
 	}
 }
 

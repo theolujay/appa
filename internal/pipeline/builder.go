@@ -3,7 +3,6 @@ package pipeline
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -164,9 +163,7 @@ func (p *Pipeline) streamLogs(id int64, phase string, r io.Reader) {
 	}
 
 	if s.Err() != nil {
-		if !errors.Is(s.Err(), io.EOF) {
-			fmt.Printf("log stream error: %v\n", s.Err())
-		}
+		fmt.Printf("log stream error: %v\n", s.Err())
 	}
 }
 

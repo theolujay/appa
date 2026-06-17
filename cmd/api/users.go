@@ -11,7 +11,6 @@ import (
 
 // registerUserHandler() creates a new user in the database, generates an
 // activation token, and sends a welcome email with the token in the background.
-
 func (app *application) registerUserHandler(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Name     string `json:"name"`
@@ -84,7 +83,6 @@ func (app *application) registerUserHandler(w http.ResponseWriter, r *http.Reque
 // activation token. If the token is valid and not expired, the user's
 // activated status is set to true and all activation tokens for the user
 // are deleted.
-
 func (app *application) activateUserHandler(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		TokenPlaintext string `json:"token"`

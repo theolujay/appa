@@ -28,7 +28,7 @@ func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	deployment := &data.Deployment{
+	deployment := data.Deployment{
 		Source:  input.Source,
 		EnvVars: &input.EnvVars,
 	}
@@ -37,18 +37,18 @@ func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.R
 		deployment.UserID = &user.ID
 	}
 
-	if errs := data.ValidateDeployment(deployment); len(errs) > 0 {
+	if errs := data.ValidateDeployment(&deployment); len(errs) > 0 {
 		app.failedValidationResponse(w, r, errs)
 		return
 	}
 
-	if err := app.models.Deployments.Create(deployment); err != nil {
+	if err := app.models.Deployments.Create(&deployment); err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
 	}
 
 	app.background(func() {
-		app.pipeline.Run(deployment)
+		app.pipeline.Run(&deployment)
 	})
 
 	headers := make(http.Header)
@@ -94,7 +94,7 @@ func (app *application) uploadProjectHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	deployment := &data.Deployment{
+	deployment := data.Deployment{
 		Source:  "uploaded-project",
 		EnvVars: &envVars,
 	}
@@ -103,14 +103,14 @@ func (app *application) uploadProjectHandler(w http.ResponseWriter, r *http.Requ
 		deployment.UserID = &user.ID
 	}
 
-	if err = app.models.Deployments.Create(deployment); err != nil {
+	if err = app.models.Deployments.Create(&deployment); err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
 	}
 
 	app.background(func() {
 		deployment.Source = uploadDir
-		app.pipeline.Run(deployment)
+		app.pipeline.Run(&deployment)
 	})
 
 	err = app.writeJSON(w, http.StatusAccepted, envelope{"deployment": deployment}, nil)

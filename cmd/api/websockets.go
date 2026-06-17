@@ -90,7 +90,7 @@ func (app *application) streamLogsHandler(w http.ResponseWriter, r *http.Request
 	for _, l := range logs {
 		event := hub.Event{
 			Type: hub.MessageTypeLog,
-			Log:  &hub.LogMessage{ID: l.ID, Line: l.Line},
+			Log:  hub.LogMessage{ID: l.ID, Line: l.Line},
 		}
 		if err := conn.WriteJSON(event); err != nil {
 			app.logger.Debug("failed to send historical log", "log_id", l.ID, "error", err)
@@ -128,7 +128,7 @@ func writePump(conn *websocket.Conn, send <-chan hub.Event, lastHistoryID int64)
 				return
 			}
 			// Skip logs already sent as part of history
-			if event.Type == hub.MessageTypeLog && event.Log != nil && event.Log.ID <= lastHistoryID {
+			if event.Type == hub.MessageTypeLog && event.Log.ID <= lastHistoryID {
 				continue
 			}
 			if err := conn.WriteJSON(event); err != nil {

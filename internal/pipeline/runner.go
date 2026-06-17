@@ -3,7 +3,6 @@ package pipeline
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -31,18 +30,12 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	dockerClient, err := client.New(client.FromEnv)
-	if err != nil {
-		return "", fmt.Errorf("failed to create docker client: %w", err)
-	}
-	defer dockerClient.Close()
-
 	hostPort, err := getFreePort()
 	if err != nil {
 		return "", fmt.Errorf("filed to find free port: %w", err)
 	}
 
-	imageInspectResult, err := dockerClient.ImageInspect(ctx, imageTag)
+	imageInspectResult, err := p.dockerClient.ImageInspect(ctx, imageTag)
 	if err != nil {
 		return "", fmt.Errorf("failed to inspect image: %w", err)
 	}
@@ -72,6 +65,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 	var env []string
 	if deployment.EnvVars != nil && *deployment.EnvVars != "" {
 		lines := strings.Split(*deployment.EnvVars, "\n")
+		env = make([]string, 0, len(lines))
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
 			if line != "" {
@@ -87,7 +81,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 		AutoRemove:  false,
 	}
 
-	createResp, err := dockerClient.ContainerCreate(ctx, client.ContainerCreateOptions{
+	createResp, err := p.dockerClient.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Name: containerName,
 		Config: &container.Config{
 			Image: imageTag,
@@ -100,7 +94,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 		return "", fmt.Errorf("failed to create container: %w", err)
 	}
 
-	_, err = dockerClient.ContainerStart(ctx, createResp.ID, client.ContainerStartOptions{})
+	_, err = p.dockerClient.ContainerStart(ctx, createResp.ID, client.ContainerStartOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to start container: %w", err)
 	}
@@ -134,8 +128,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 	}
 
 	go func() {
-		logCtx := context.Background()
-		logReader, err := dockerClient.ContainerLogs(logCtx, createResp.ID, client.ContainerLogsOptions{
+		logReader, err := p.dockerClient.ContainerLogs(ctx, createResp.ID, client.ContainerLogsOptions{
 			ShowStdout: true,
 			ShowStderr: true,
 			Follow:     true,
@@ -172,21 +165,19 @@ func (p *Pipeline) StopContainer(id int64) error {
 	imageTag := ""
 	status := data.STOPPED
 
-	dockerClient, err := client.New(client.FromEnv)
-	if err != nil {
-		return fmt.Errorf("failed to create docker client: %w", err)
-	}
-	defer dockerClient.Close()
-
 	// Since AutoRemove: true was set in StartContainer,
 	// stopping the container will automatically delete it.
 	containerName := fmt.Sprintf("appa-%d", id)
-	if _, err := dockerClient.ContainerStop(context.Background(), containerName, client.ContainerStopOptions{}); err != nil {
+	_, err := p.dockerClient.ContainerStop(
+		context.Background(), containerName, client.ContainerStopOptions{},
+	)
+	if err != nil {
 		if !strings.Contains(err.Error(), "No such container") {
 			return fmt.Errorf("failed to stop container %s: %w", containerName, err)
 		}
 	}
-	if err := p.router.RemoveRoute(id); err != nil {
+	err = p.router.RemoveRoute(id)
+	if err != nil {
 		fmt.Printf("failed to remove caddy route for %d: %v\n", id, err)
 	}
 
@@ -229,13 +220,12 @@ func caddyLogFilter(r io.Reader) io.Reader {
 		s := bufio.NewScanner(r)
 		for s.Scan() {
 			if !strings.Contains(s.Text(), `"logger":"http.log.access`) {
-				fmt.Fprintln(pw, s.Text())
+				b := append([]byte(s.Text()), '\n')
+				pw.Write(b)
 			}
 		}
 		if s.Err() != nil {
-			if !errors.Is(s.Err(), io.EOF) {
-				fmt.Println(pw, s.Err())
-			}
+			fmt.Println(pw, s.Err())
 		}
 		pw.Close()
 	}()

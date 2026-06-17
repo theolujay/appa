@@ -45,9 +45,6 @@ func (app *application) writeJSON(w http.ResponseWriter, status int, data envelo
 		return err
 	}
 
-	// Add a newline to make it easier to view in the terminal
-	js = append(js, '\n')
-
 	// There surely won't be any more errors at this point before writing
 	// the response, so it's safe to add a any headers to be included. It's
 	// OK if the privided header map is nil. Go doesn't throw and error if
@@ -61,6 +58,7 @@ func (app *application) writeJSON(w http.ResponseWriter, status int, data envelo
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	w.Write(js)
+	w.Write([]byte{'\n'})
 
 	return nil
 }

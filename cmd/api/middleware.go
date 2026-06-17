@@ -38,11 +38,43 @@ func (app *application) secureHeaders(next http.Handler) http.Handler {
 
 func (app *application) logRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		app.logger.Info(
-			"%s - %s %s %s", r.RemoteAddr, r.Proto, r.Method, r.URL.RequestURI(),
+		start := time.Now()
+		rec := &responseRecorder{ResponseWriter: w}
+		next.ServeHTTP(rec, r)
+		duration := time.Since(start)
+		app.logger.Info("request",
+			"remote", r.RemoteAddr,
+			"method", r.Method,
+			"uri", r.URL.RequestURI(),
+			"status", rec.statusCode,
+			"duration_ms", duration.Milliseconds(),
 		)
-		next.ServeHTTP(w, r)
 	})
+}
+
+type responseRecorder struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (r *responseRecorder) WriteHeader(code int) {
+	r.statusCode = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *responseRecorder) Write(b []byte) (int, error) {
+	if r.statusCode == 0 {
+		r.statusCode = http.StatusOK
+	}
+	return r.ResponseWriter.Write(b)
+}
+
+func (r *responseRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	r.statusCode = http.StatusSwitchingProtocols
+	if hj, ok := r.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, errors.New("not a Hijacker")
 }
 
 // The recoverPanic() method is a middleware for the server to send a

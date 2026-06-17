@@ -24,9 +24,9 @@ type StatusUpdate struct {
 }
 
 type Event struct {
-	Type   MessageType   `json:"type"`
-	Log    *LogMessage   `json:"log,omitempty"`
-	Status *StatusUpdate `json:"status,omitempty"`
+	Type   MessageType  `json:"type"`
+	Log    LogMessage   `json:"log,omitempty"`
+	Status StatusUpdate `json:"status,omitempty"`
 }
 
 type Client struct {
@@ -137,7 +137,7 @@ func (h *Hub) PublishLog(deploymentID int64, log LogMessage) {
 		DeploymentID: deploymentID,
 		Event: Event{
 			Type: MessageTypeLog,
-			Log:  &log,
+			Log:  log,
 		},
 	}
 }
@@ -150,7 +150,7 @@ func (h *Hub) PublishStatus(deploymentID int64, status string, url string) {
 		DeploymentID: deploymentID,
 		Event: Event{
 			Type: MessageTypeStatus,
-			Status: &StatusUpdate{
+			Status: StatusUpdate{
 				Status: status,
 				URL:    url,
 			},
