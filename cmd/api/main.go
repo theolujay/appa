@@ -143,9 +143,9 @@ func main() {
 	}
 
 	router := pipeline.NewRouter("caddy:2019")
-	app.pipeline = pipeline.New(&app.models.Deployments, app.hub, router)
+	app.pipeline = pipeline.New(app.models.Deployments, app.hub, router)
 	app.background(func() {
-		if err := router.RestoreRoutes(&app.models.Deployments); err != nil {
+		if err := router.RestoreRoutes(app.models.Deployments.(*data.DeploymentModel)); err != nil {
 			app.logger.Error(err.Error())
 		}
 	})

@@ -48,6 +48,17 @@ type DeploymentUpdate struct {
 	URL      *string
 }
 
+type DeploymentModeler interface {
+	Create(d *Deployment) error
+	Get(id int64) (*Deployment, error)
+	GetAllForUser(id int64, status string, filters Filters) (
+		[]Deployment, Metadata, error,
+	)
+	GetLogs(id int64) ([]LogEntry, error)
+	AppendLog(id int64, phase, line string) (int64, error)
+	UpdateAndGet(id int64, u DeploymentUpdate) (*Deployment, error)
+}
+
 func ValidateDeployment(d *Deployment) vd.Error {
 	v := vd.New()
 	v.Check(d.Source != "", "source", "must be provided")
@@ -70,29 +81,29 @@ func validateEnvVars(e string) int {
 	return 0
 }
 
-func (d *DeploymentModel) Create(dp *Deployment) error {
+func (dm *DeploymentModel) Create(d *Deployment) error {
 	query := `
 		INSERT INTO deployments (source, env_vars, user_id)
 		VALUES($1, $2, $3)
 		RETURNING id, status, created_at, version
 	`
 
-	err := d.DB.QueryRow(
+	err := dm.DB.QueryRow(
 		query,
-		dp.Source,
-		dp.EnvVars,
-		dp.UserID,
+		d.Source,
+		d.EnvVars,
+		d.UserID,
 	).Scan(
-		&dp.ID,
-		&dp.Status,
-		&dp.CreatedAt,
-		&dp.Version,
+		&d.ID,
+		&d.Status,
+		&d.CreatedAt,
+		&d.Version,
 	)
 
 	return err
 }
 
-func (d *DeploymentModel) Get(id int64) (*Deployment, error) {
+func (dm *DeploymentModel) Get(id int64) (*Deployment, error) {
 
 	query := `
 		SELECT id, user_id, source, status, image_tag, address, env_vars, url, created_at
@@ -101,18 +112,18 @@ func (d *DeploymentModel) Get(id int64) (*Deployment, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	var dp Deployment
+	var d Deployment
 
-	err := d.DB.QueryRowContext(ctx, query, id).Scan(
-		&dp.ID,
-		&dp.UserID,
-		&dp.Source,
-		&dp.Status,
-		&dp.ImageTag,
-		&dp.Address,
-		&dp.EnvVars,
-		&dp.URL,
-		&dp.CreatedAt,
+	err := dm.DB.QueryRowContext(ctx, query, id).Scan(
+		&d.ID,
+		&d.UserID,
+		&d.Source,
+		&d.Status,
+		&d.ImageTag,
+		&d.Address,
+		&d.EnvVars,
+		&d.URL,
+		&d.CreatedAt,
 	)
 
 	if err != nil {
@@ -124,10 +135,10 @@ func (d *DeploymentModel) Get(id int64) (*Deployment, error) {
 		}
 	}
 
-	return &dp, nil
+	return &d, nil
 }
 
-func (d *DeploymentModel) GetAllForUser(
+func (dm *DeploymentModel) GetAllForUser(
 	id int64, status string, filters Filters,
 ) ([]Deployment, Metadata, error) {
 	totalRecords := 0
@@ -149,7 +160,7 @@ func (d *DeploymentModel) GetAllForUser(
 
 	args := []any{id, status, filters.limit(), filters.offset()}
 
-	rows, err := d.DB.QueryContext(ctx, query, args...)
+	rows, err := dm.DB.QueryContext(ctx, query, args...)
 	if err != nil {
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
@@ -194,14 +205,14 @@ type LogEntry struct {
 	Line string `json:"line"`
 }
 
-func (d *DeploymentModel) GetLogs(id int64) ([]LogEntry, error) {
+func (dm *DeploymentModel) GetLogs(id int64) ([]LogEntry, error) {
 
 	query := `SELECT id, line FROM logs WHERE deployment_id = $1 ORDER BY id ASC`
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	rows, err := d.DB.QueryContext(ctx, query, id)
+	rows, err := dm.DB.QueryContext(ctx, query, id)
 	if err != nil {
 		return nil, err
 	}
@@ -218,14 +229,14 @@ func (d *DeploymentModel) GetLogs(id int64) ([]LogEntry, error) {
 	return logs, rows.Err()
 }
 
-func (d *DeploymentModel) AppendLog(id int64, phase, line string) (int64, error) {
+func (dm *DeploymentModel) AppendLog(id int64, phase, line string) (int64, error) {
 
 	query := `INSERT INTO logs (deployment_id, phase, line) VALUES ($1, $2, $3) RETURNING id`
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	var logID int64
-	err := d.DB.QueryRowContext(ctx, query, id, phase, line).Scan(&logID)
+	err := dm.DB.QueryRowContext(ctx, query, id, phase, line).Scan(&logID)
 	if err != nil {
 		return 0, err
 	}
@@ -234,7 +245,7 @@ func (d *DeploymentModel) AppendLog(id int64, phase, line string) (int64, error)
 
 // UpdateAndGet updates a deployment and returns the full row. It uses a
 // RETURNING clause so callers avoid a separate Get round-trip.
-func (d *DeploymentModel) UpdateAndGet(id int64, u DeploymentUpdate) (*Deployment, error) {
+func (dm *DeploymentModel) UpdateAndGet(id int64, u DeploymentUpdate) (*Deployment, error) {
 
 	query := "UPDATE deployments SET "
 	args := make([]any, 0, 6)
@@ -273,23 +284,23 @@ func (d *DeploymentModel) UpdateAndGet(id int64, u DeploymentUpdate) (*Deploymen
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	var dp Deployment
+	var d Deployment
 
-	err := d.DB.QueryRowContext(ctx, query, args...).Scan(
-		&dp.ID,
-		&dp.UserID,
-		&dp.Source,
-		&dp.Status,
-		&dp.ImageTag,
-		&dp.Address,
-		&dp.EnvVars,
-		&dp.URL,
-		&dp.CreatedAt,
+	err := dm.DB.QueryRowContext(ctx, query, args...).Scan(
+		&d.ID,
+		&d.UserID,
+		&d.Source,
+		&d.Status,
+		&d.ImageTag,
+		&d.Address,
+		&d.EnvVars,
+		&d.URL,
+		&d.CreatedAt,
 	)
 
 	if err != nil {
 		return &Deployment{}, err
 	}
-	return &dp, nil
+	return &d, nil
 
 }

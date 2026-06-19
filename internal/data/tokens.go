@@ -27,6 +27,12 @@ type TokenModel struct {
 	DB *sql.DB
 }
 
+type TokenModeler interface {
+	New(userID int64, TTL time.Duration, scope string) (*Token, error)
+	Insert(token *Token) error
+	DeleteAllForUser(scope string, userID int64) error
+}
+
 // Check that the plaintext token has been provided
 // and is exactly 26 bytes long.
 func ValidateTokenPlaintext(tokenPlaintext string) vd.Error {
@@ -52,8 +58,8 @@ func generateToken(userID int64, ttl time.Duration, scope string) *Token {
 	return token
 }
 
-func (m TokenModel) New(userID int64, ttl time.Duration, scope string) (*Token, error) {
-	token := generateToken(userID, ttl, scope)
+func (m TokenModel) New(userID int64, TTL time.Duration, scope string) (*Token, error) {
+	token := generateToken(userID, TTL, scope)
 
 	err := m.Insert(token)
 	return token, err

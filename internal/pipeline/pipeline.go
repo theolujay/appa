@@ -27,7 +27,7 @@ const (
 // Pipeline manages the deployment workflow for applications, including
 // code preparation, containerization, and traffic routing.
 type Pipeline struct {
-	deployment   *data.DeploymentModel
+	deployment   data.DeploymentModeler
 	hub          *hub.Hub
 	router       *Router
 	mu           sync.Mutex
@@ -36,7 +36,7 @@ type Pipeline struct {
 }
 
 // New creates a new Pipeline with the necessary models and WebSocket hub.
-func New(dm *data.DeploymentModel, h *hub.Hub, r *Router) *Pipeline {
+func New(dm data.DeploymentModeler, h *hub.Hub, r *Router) *Pipeline {
 	c, err := client.New(client.FromEnv)
 	if err != nil {
 		panic(fmt.Errorf("failed to initialize docker client: %w", err))

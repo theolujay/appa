@@ -43,6 +43,13 @@ type UserModel struct {
 	DB *sql.DB
 }
 
+type UserModeler interface {
+	Insert(user *User) error
+	GetByEmail(email string) (*User, error)
+	Update(user *User) error
+	GetForToken(tokenScope string, tokenPlaintext string) (*User, error)
+}
+
 // The Set() method calculates the bcrypt has of a plaintext password
 // and stores both the hash and the plaintext versions in the struct.
 func (p *password) Set(plaintextPassword string) error {
