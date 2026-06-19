@@ -10,9 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-
-	"github.com/theolujay/appa/internal/data"
-	"github.com/theolujay/appa/internal/hub"
 )
 
 const (
@@ -24,22 +21,12 @@ const (
 // generate a BuildKit build plan. It streams every line of output to the
 // hub and persists it to the database as it arrives.
 func (p *Pipeline) Prepare(ctx context.Context, id int64, source string) (string, error) {
-	status := data.BUILDING
-
-	deployment, err := p.deployment.UpdateAndGet(id, data.DeploymentUpdate{Status: &status})
-	if err != nil {
-		return "", fmt.Errorf("failed to update status: %w", err)
-	}
-
-	p.hub.PublishStatus(id, status, "")
-
 	buildDir, err := p.cloneRepo(ctx, source, id)
 	if err != nil {
 		return "", err
 	}
 
-	logID, _ := p.deployment.AppendLog(id, phaseBuild, "preparing...")
-	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: "preparing..."})
+	p.logLine(id, phaseBuild, "preparing...")
 
 	planFile := filepath.Join(buildDir, railpackPlanFile)
 	infoFile := filepath.Join(buildDir, railpackInfoFile)
@@ -58,8 +45,12 @@ func (p *Pipeline) Prepare(ctx context.Context, id int64, source string) (string
 	// Pass the user's environment variables
 	//
 	// TODO: implement better handling for secrets
-	if deployment.EnvVars != nil && *deployment.EnvVars != "" {
-		envLines := strings.SplitSeq(*deployment.EnvVars, "\n")
+	d, err := p.deployment.Get(id)
+	if err != nil {
+		return "", err
+	}
+	if d.EnvVars != nil && *d.EnvVars != "" {
+		envLines := strings.SplitSeq(*d.EnvVars, "\n")
 		for line := range envLines {
 			line = strings.TrimSpace(line)
 			if line != "" {
@@ -88,8 +79,7 @@ func (p *Pipeline) Build(ctx context.Context, id int64, buildDir string) (string
 		return "", fmt.Errorf("build failed: railpack version not set")
 	}
 
-	logID, _ := p.deployment.AppendLog(id, phaseBuild, "building...")
-	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: "building..."})
+	p.logLine(id, phaseBuild, "building...")
 
 	buildctl := exec.CommandContext(
 		ctx,
@@ -150,20 +140,10 @@ func (p *Pipeline) Build(ctx context.Context, id int64, buildDir string) (string
 func (p *Pipeline) streamLogs(id int64, phase string, r io.Reader) {
 	s := bufio.NewScanner(r)
 	for s.Scan() {
-		line := s.Text()
-
-		// First persist. If the hub publish fails for any reason, the log
-		// lines still live in the database for scroll-back
-		logID, err := p.deployment.AppendLog(id, phase, line)
-		if err != nil {
-			_ = err
-		}
-
-		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: line})
+		p.logLine(id, phase, s.Text())
 	}
-
-	if s.Err() != nil {
-		fmt.Printf("log stream error: %v\n", s.Err())
+	if err := s.Err(); err != nil {
+		p.logLine(id, phase, fmt.Sprintf("log stream error: %v", err))
 	}
 }
 
@@ -174,34 +154,29 @@ func (p *Pipeline) cloneRepo(ctx context.Context, source string, id int64) (stri
 		isLocal = true
 	}
 
-	var buildDir string
 	if isLocal {
-		buildDir = source
-		logID, _ := p.deployment.AppendLog(id, phaseBuild, "using uploaded project files")
-		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: "using uploaded project files"})
-	} else {
-		// Create a temporary directory to clone the source repository into,
-		// then clean it up afterwards
-		tmpDir, err := os.MkdirTemp("", "appa-build-*")
-		if err != nil {
-			return "", fmt.Errorf("failed to create temp dir: %w", err)
-		}
-
-		buildDir = tmpDir
-
-		// Clone the repository into the temp directory, and stream it in logs
-		msg := fmt.Sprintf("cloning %s", source)
-		logID, _ := p.deployment.AppendLog(id, phaseBuild, msg)
-		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
-
-		cloneCmd := exec.CommandContext(ctx, "git", "clone", "--quiet", "--depth=1", source, buildDir)
-		cloneOut, err := cloneCmd.CombinedOutput()
-		if err != nil {
-			return "", fmt.Errorf("git clone failed: %s", string(cloneOut))
-		}
-		logID, _ = p.deployment.AppendLog(id, phaseBuild, "clone complete")
-		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: "clone complete"})
+		p.logLine(id, phaseBuild, "using uploaded project files")
+		return source, nil
 	}
+
+	// Create a temporary directory to clone the source repository into,
+	// then clean it up afterwards
+	tmpDir, err := os.MkdirTemp("", "appa-build-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp dir: %w", err)
+	}
+
+	buildDir := tmpDir
+
+	// Clone the repository into the temp directory, and stream it in logs
+	p.logLine(id, phaseBuild, fmt.Sprintf("cloning %s", source))
+
+	cloneCmd := exec.CommandContext(ctx, "git", "clone", "--quiet", "--depth=1", source, buildDir)
+	cloneOut, err := cloneCmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git clone failed: %s", string(cloneOut))
+	}
+	p.logLine(id, phaseBuild, "clone complete")
 
 	return buildDir, nil
 }

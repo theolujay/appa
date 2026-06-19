@@ -11,16 +11,6 @@ import (
 	vd "github.com/theolujay/appa/internal/validator"
 )
 
-const (
-	PENDING   string = "pending"
-	BUILDING  string = "building"
-	DEPLOYING string = "deploying"
-	RUNNING   string = "running"
-	CANCELED  string = "canceled"
-	STOPPED   string = "stopped"
-	FAILED    string = "failed"
-)
-
 type DeploymentModel struct {
 	DB *sql.DB
 }

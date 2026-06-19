@@ -119,10 +119,9 @@ func (r *Router) AddRoute(id int64, address string) error {
 	return nil
 }
 
-// RemoveRoute deletes the route associated with the given deployment `id`
-// from the Caddy instance. It performs an HTTP DELETE against the Caddy
-// admin API and returns any error encountered while creating or sending the
-// request.
+// RemoveRoute deletes the route associated with the given deployment `id` from
+// the Caddy instance. It performs an HTTP DELETE against the Caddy admin API
+// and returns any error encountered while creating or sending the request.
 func (r *Router) RemoveRoute(id int64) error {
 	routeID := fmt.Sprintf("deployment-%d", id)
 	url := fmt.Sprintf("%s/id/%s", r.baseURL, routeID)
@@ -142,11 +141,11 @@ func (r *Router) RemoveRoute(id int64) error {
 }
 
 // RestoreRoutes synchronizes Caddy routes with currently running deployments
-// known to the provided `data.DeploymentModel`. It queries the model for
+// known to the provided `data.DeploymentModeler`. It queries the model for
 // active deployments and calls `AddRoute` for each running deployment that
 // exposes an address. Errors during individual route restores are logged but
 // do not abort the whole synchronization process.
-func (r *Router) RestoreRoutes(dm *data.DeploymentModel) error {
+func (r *Router) RestoreRoutes(dm data.DeploymentModeler) error {
 	filters := data.Filters{
 		Page:         1,
 		PageSize:     1_000_000,
@@ -155,9 +154,9 @@ func (r *Router) RestoreRoutes(dm *data.DeploymentModel) error {
 	}
 	// A user ID of 0 is treated as a wildcard
 	// and fetches deployments for all users.
-	deployments, _, err := dm.GetAllForUser(0, data.RUNNING, filters)
+	deployments, metadata, err := dm.GetAllForUser(0, RUNNING, filters)
 	if err != nil {
-		return fmt.Errorf("failed to list deployments for sync: %w", err)
+		return fmt.Errorf("failed to list %d deployments for sync: %w", metadata.TotalRecords, err)
 	}
 
 	fmt.Println("Syncing active deployment routes with Caddy...")
@@ -165,7 +164,7 @@ func (r *Router) RestoreRoutes(dm *data.DeploymentModel) error {
 		fmt.Println("No active deployments found. Skipping...")
 	} else {
 		for _, d := range deployments {
-			if d.Status == data.RUNNING && d.Address != nil {
+			if d.Status == RUNNING && d.Address != nil {
 				fmt.Printf("Restoring route for %d -> %s\n", d.ID, *d.Address)
 				err = r.AddRoute(d.ID, *d.Address)
 				if err != nil {

@@ -18,43 +18,43 @@ import (
 func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 	user := app.contextGetUser(r)
 
-	var input struct {
+	var p struct {
 		Source  string `json:"source"`
 		EnvVars string `json:"env_vars"`
 	}
-	err := app.readJSON(w, r, &input)
+	err := app.readJSON(w, r, &p)
 	if err != nil {
 		app.badRequestResponse(w, r, err)
 		return
 	}
 
-	deployment := data.Deployment{
-		Source:  input.Source,
-		EnvVars: &input.EnvVars,
+	d := data.Deployment{
+		Source:  p.Source,
+		EnvVars: &p.EnvVars,
 	}
 
 	if !user.IsAnonymous() {
-		deployment.UserID = &user.ID
+		d.UserID = &user.ID
 	}
 
-	if errs := data.ValidateDeployment(&deployment); len(errs) > 0 {
+	if errs := data.ValidateDeployment(&d); len(errs) > 0 {
 		app.failedValidationResponse(w, r, errs)
 		return
 	}
 
-	if err := app.models.Deployments.Create(&deployment); err != nil {
+	if err := app.models.Deployments.Create(&d); err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
 	}
 
 	app.background(func() {
-		app.pipeline.Run(&deployment)
+		app.pipeline.Run(&d)
 	})
 
 	headers := make(http.Header)
-	headers.Set("Location", fmt.Sprintf("/deployments/%d/logs", deployment.ID))
+	headers.Set("Location", fmt.Sprintf("/deployments/%d/logs", d.ID))
 
-	err = app.writeJSON(w, http.StatusCreated, envelope{"deployment": deployment}, headers)
+	err = app.writeJSON(w, http.StatusCreated, envelope{"deployment": d}, headers)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
@@ -94,26 +94,26 @@ func (app *application) uploadProjectHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	deployment := data.Deployment{
+	d := data.Deployment{
 		Source:  "uploaded-project",
 		EnvVars: &envVars,
 	}
 
 	if !user.IsAnonymous() {
-		deployment.UserID = &user.ID
+		d.UserID = &user.ID
 	}
 
-	if err = app.models.Deployments.Create(&deployment); err != nil {
+	if err = app.models.Deployments.Create(&d); err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
 	}
 
 	app.background(func() {
-		deployment.Source = uploadDir
-		app.pipeline.Run(&deployment)
+		d.Source = uploadDir
+		app.pipeline.Run(&d)
 	})
 
-	err = app.writeJSON(w, http.StatusAccepted, envelope{"deployment": deployment}, nil)
+	err = app.writeJSON(w, http.StatusAccepted, envelope{"deployment": d}, nil)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
@@ -163,14 +163,14 @@ func unzip(r io.ReaderAt, size int64, dest string) error {
 func (app *application) cancelDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 	user := app.contextGetUser(r)
 
-	deploymentID, err := app.readIDParam(r)
+	id, err := app.readIDParam(r)
 
-	if err != nil || deploymentID < 1 {
+	if err != nil || id < 1 {
 		app.notFoundResponse(w, r)
 		return
 	}
 
-	deployment, err := app.models.Deployments.Get(deploymentID)
+	d, err := app.models.Deployments.Get(id)
 	if err != nil {
 		switch {
 		case errors.Is(err, data.ErrRecordNotFound):
@@ -181,12 +181,12 @@ func (app *application) cancelDeploymentHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if deployment.UserID != nil && *deployment.UserID != user.ID {
+	if d.UserID != nil && *d.UserID != user.ID {
 		app.notPermittedResponse(w, r)
 		return
 	}
 
-	if err := app.pipeline.Cancel(deploymentID); err != nil {
+	if err := app.pipeline.Cancel(d.ID); err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
 	}
@@ -196,14 +196,14 @@ func (app *application) cancelDeploymentHandler(w http.ResponseWriter, r *http.R
 func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Request) {
 	user := app.contextGetUser(r)
 
-	var input struct {
+	var q struct {
 		Status string
 		data.Filters
 	}
 
 	qs := r.URL.Query()
 
-	input.Status = app.readString(qs, "status", "")
+	q.Status = app.readString(qs, "status", "")
 
 	errs := vd.Error{}
 	page, vdErr := app.readInt(qs, "page", 1)
@@ -215,12 +215,12 @@ func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Re
 		maps.Copy(errs, vdErr)
 	}
 
-	input.Filters.Page = page
-	input.Filters.PageSize = pageSize
-	input.Filters.Sort = app.readString(qs, "sort", "id")
-	input.Filters.SortSafelist = []string{"id", "status"}
+	q.Filters.Page = page
+	q.Filters.PageSize = pageSize
+	q.Filters.Sort = app.readString(qs, "sort", "id")
+	q.Filters.SortSafelist = []string{"id", "status"}
 
-	vdErr = data.ValidateFilters(input.Filters)
+	vdErr = data.ValidateFilters(q.Filters)
 	if vdErr != nil {
 		maps.Copy(errs, vdErr)
 	}
@@ -230,13 +230,13 @@ func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	deployments, metadata, err := app.models.Deployments.GetAllForUser(user.ID, input.Status, input.Filters)
+	d, m, err := app.models.Deployments.GetAllForUser(user.ID, q.Status, q.Filters)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
 	}
 
-	err = app.writeJSON(w, http.StatusOK, envelope{"deployments": deployments, "metadata": metadata}, nil)
+	err = app.writeJSON(w, http.StatusOK, envelope{"deployments": d, "metadata": m}, nil)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return

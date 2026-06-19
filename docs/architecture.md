@@ -1,7 +1,6 @@
 # Appa Architecture
 
-Appa is a self-hostable deployment platform that turns a Git repository or ZIP
-archive into a running container behind a stable URL. The product has two
+Appa is a self-hosted, CLI-native deployment platform. The product has two
 surfaces: the Appa CLI installed on the operator's machine, and an Appa Server
 instance running on a remote VPS. The server stack combines a Go API,
 PostgreSQL, BuildKit, Railpack, Docker, Caddy, and a React dashboard.

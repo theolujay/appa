@@ -3,6 +3,7 @@ package pipeline
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,58 +14,55 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 	"github.com/theolujay/appa/internal/data"
-	"github.com/theolujay/appa/internal/hub"
 )
 
 // StartContainer starts a container from the given image tag and streams its logs
 // to the hub and the database. It returns the host:port address of the
 // running container so the router can configure Caddy to point at it.
-func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string) (string, error) {
-	status := data.DEPLOYING
-	deployment, err := p.deployment.UpdateAndGet(id, data.DeploymentUpdate{Status: &status})
+func (p *Pipeline) StartContainer(ctx context.Context, id int64) (string, error) {
+	d, err := p.deployment.Get(id)
 	if err != nil {
-		return "", fmt.Errorf("failed to update status: %w", err)
+		return "", err
 	}
-	p.hub.PublishStatus(id, status, "")
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	hostPort, err := getFreePort()
+	hPort, err := getPort()
 	if err != nil {
-		return "", fmt.Errorf("filed to find free port: %w", err)
+		return "", err
 	}
 
-	imageInspectResult, err := p.dockerClient.ImageInspect(ctx, imageTag)
+	res, err := p.dockerClient.ImageInspect(ctx, *d.ImageTag)
 	if err != nil {
-		return "", fmt.Errorf("failed to inspect image: %w", err)
+		return "", err
 	}
 
-	containerPortStr := "3000/tcp"
+	cPort := "3000/tcp"
 
 	// If the image explicitly exposes ports, use the first one
-	if len(imageInspectResult.Config.ExposedPorts) > 0 {
-		for port := range imageInspectResult.Config.ExposedPorts {
-			containerPortStr = string(port)
+	if len(res.Config.ExposedPorts) > 0 {
+		for p := range res.Config.ExposedPorts {
+			cPort = string(p)
 			break
 		}
 	} else {
 		cmd := ""
-		if imageInspectResult.Config.Entrypoint != nil {
-			cmd += strings.Join(imageInspectResult.Config.Entrypoint, " ")
+		if res.Config.Entrypoint != nil {
+			cmd += strings.Join(res.Config.Entrypoint, "")
 		}
-		if imageInspectResult.Config.Cmd != nil {
-			cmd += " " + strings.Join(imageInspectResult.Config.Cmd, " ")
+		if res.Config.Cmd != nil {
+			cmd += " " + strings.Join(res.Config.Cmd, "")
 		}
 
 		if strings.Contains(cmd, "caddy run") || strings.Contains(cmd, "http-server") {
-			containerPortStr = "80/tcp"
+			cPort = "80/tcp"
 		}
 	}
 
 	var env []string
-	if deployment.EnvVars != nil && *deployment.EnvVars != "" {
-		lines := strings.Split(*deployment.EnvVars, "\n")
+	if d.EnvVars != nil && *d.EnvVars != "" {
+		lines := strings.Split(*d.EnvVars, "\n")
 		env = make([]string, 0, len(lines))
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
@@ -74,40 +72,37 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 		}
 	}
 
-	containerName := fmt.Sprintf("appa-%d", id)
-
 	hostConfig := &container.HostConfig{
 		NetworkMode: "appa_net",
-		AutoRemove:  false,
+		// this is set to false so logs can be inspected
+		// in the future if necessary
+		AutoRemove: false,
 	}
 
+	cName := fmt.Sprintf("appa-%d", d.ID)
 	createResp, err := p.dockerClient.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Name: containerName,
+		Name: cName,
 		Config: &container.Config{
-			Image: imageTag,
+			Image: *d.ImageTag,
 			Env:   env,
 		},
 		HostConfig: hostConfig,
 	})
 
 	if err != nil {
-		return "", fmt.Errorf("failed to create container: %w", err)
+		return "", err
 	}
 
 	_, err = p.dockerClient.ContainerStart(ctx, createResp.ID, client.ContainerStartOptions{})
 	if err != nil {
-		return "", fmt.Errorf("failed to start container: %w", err)
+		return "", err
 	}
 
-	address := net.JoinHostPort(containerName, strings.Split(containerPortStr, "/")[0])
-
-	msg := fmt.Sprintf("waiting for container %s to respond...", address)
-	logID, _ := p.deployment.AppendLog(id, phaseDeploy, msg)
-	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
+	addr := net.JoinHostPort(cName, strings.Split(cPort, "/")[0])
 
 	healthy := false
 	for range 60 { // wait up to 30 seconds (60 * 500ms)
-		conn, err := net.DialTimeout("tcp", address, 500*time.Millisecond)
+		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
 		if err == nil {
 			conn.Close()
 			healthy = true
@@ -117,14 +112,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 	}
 
 	if !healthy {
-		msg := "container failed to start"
-		logID, _ := p.deployment.AppendLog(id, phaseDeploy, msg)
-		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
-		return "", fmt.Errorf("container did not respond on port %d", hostPort)
-	} else {
-		msg := "container is healthy and accepting connections"
-		logID, _ := p.deployment.AppendLog(id, phaseDeploy, msg)
-		p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
+		return "", fmt.Errorf("container did not respond on port %d", hPort)
 	}
 
 	go func() {
@@ -135,7 +123,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 			Timestamps: false,
 		})
 		if err != nil {
-			p.deployment.AppendLog(id, phaseDeploy, fmt.Sprintf("failed to attach container logs: %v", err))
+			p.logLine(id, phaseDeploy, fmt.Sprintf("failed to attach container logs: %v", err))
 			return
 		}
 		defer logReader.Close()
@@ -156,53 +144,56 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64, imageTag string
 		p.streamLogs(id, phaseDeploy, filtered)
 	}()
 
-	return address, nil
+	return addr, nil
 }
 
 // StopContainer stops the Docker container, removes the associated Caddy route, and updates the deployment status to STOPPED.
-func (p *Pipeline) StopContainer(id int64) error {
-	URL := ""
-	imageTag := ""
-	status := data.STOPPED
+func (p *Pipeline) StopContainer(dc *pipelineCtx) {
+	_, err := p.deployment.Get(dc.ID)
+	if err != nil {
+		switch {
+		case errors.Is(err, data.ErrRecordNotFound):
+			dc.err = fmt.Errorf("deployment not found")
+		default:
+			dc.err = err
+		}
+		return
+	}
 
-	// Since AutoRemove: true was set in StartContainer,
-	// stopping the container will automatically delete it.
-	containerName := fmt.Sprintf("appa-%d", id)
-	_, err := p.dockerClient.ContainerStop(
-		context.Background(), containerName, client.ContainerStopOptions{},
+	// Since AutoRemove was set to false in StartContainer,
+	// stopping the container will NOT automatically delete it.
+	// This means that there's oftentimes a possibility of the
+	// container dangling and idle.
+	// TODO: consider adding another container removal method
+	cName := fmt.Sprintf("appa-%d", dc.ID)
+	_, err = p.dockerClient.ContainerStop(
+		dc.ctx, cName, client.ContainerStopOptions{},
 	)
 	if err != nil {
-		if !strings.Contains(err.Error(), "No such container") {
-			return fmt.Errorf("failed to stop container %s: %w", containerName, err)
+		errMsg := strings.ToLower(err.Error())
+		if !strings.Contains(errMsg, "no such container") {
+			dc.err = fmt.Errorf("failed to stop container %s: %s", cName, errMsg)
+			return
 		}
 	}
-	err = p.router.RemoveRoute(id)
-	if err != nil {
-		fmt.Printf("failed to remove caddy route for %d: %v\n", id, err)
+
+	err = p.router.RemoveRoute(dc.ID)
+
+	url := ""
+	status := STOPPED
+	imageTag := ""
+
+	dc.status = status
+	dc.update = &data.DeploymentUpdate{
+		URL:      &url,
+		Status:   &status,
+		ImageTag: &imageTag,
 	}
-
-	_, err = p.deployment.UpdateAndGet(
-		id,
-		data.DeploymentUpdate{
-			URL:      &URL,
-			Status:   &status,
-			ImageTag: &imageTag,
-		},
-	)
-	if err != nil {
-		return err
-	}
-
-	msg := "deployment stopped by user"
-	logID, _ := p.deployment.AppendLog(id, phaseCancel, msg)
-	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
-	p.hub.PublishStatus(id, status, "")
-
-	return nil
+	dc.err = err
 }
 
-// getFreePort finds and returns an available TCP port by binding to port 0 on localhost.
-func getFreePort() (int, error) {
+// getPort finds and returns an available TCP port by binding to port 0 on localhost.
+func getPort() (int, error) {
 	// the port number is automatically chosen with 0 as port in address parameter
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

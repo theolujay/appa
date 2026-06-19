@@ -66,3 +66,6 @@ deploy/ansible/playbooks/*/molecule/*/roles/
 
 # Local TODO tracking — not part of the project
 TODO.md
+
+# Library directory (documentation, analysis, reference materials)
+library/

@@ -4,7 +4,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/theolujay/appa)](https://goreportcard.com/report/github.com/theolujay/appa)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Appa is a self-hostable, production-ready deployment platform. Bring your own VPS, connect your domain, and deploy apps from Git repositories or ZIP uploads—without writing Dockerfiles, configuring web servers, or managing routing manually.
+Appa is a self-hosted, CLI-native deployment platform. Bring your own VPS, connect your domain, and deploy apps from Git repositories or ZIP uploads—without writing Dockerfiles, configuring web servers, or managing routing manually.
 
 ![Appa dashboard](main.png)
 

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/moby/moby/client"
 	"github.com/theolujay/appa/internal/data"
@@ -18,10 +19,20 @@ import (
 )
 
 const (
+	phasePrepare = "prepare"
 	phaseBuild   = "build"
 	phaseDeploy  = "deploy"
 	phaseRouting = "routing"
-	phaseCancel  = "cancel"
+)
+
+const (
+	PENDING   string = "pending"
+	BUILDING  string = "building"
+	DEPLOYING string = "deploying"
+	RUNNING   string = "running"
+	CANCELED  string = "canceled"
+	STOPPED   string = "stopped"
+	FAILED    string = "failed"
 )
 
 // Pipeline manages the deployment workflow for applications, including
@@ -33,6 +44,19 @@ type Pipeline struct {
 	mu           sync.Mutex
 	activeTasks  map[int64]context.CancelFunc
 	dockerClient *client.Client
+}
+
+// pipelineCtx carries the minimal state needed for pipeline logging and
+// status updates: the cancellation-aware context, deployment ID, current
+// phase and status, a DeploymentUpdate payload to persist, and any error
+// encountered.
+type pipelineCtx struct {
+	ctx    context.Context
+	ID     int64
+	phase  string
+	status string
+	update *data.DeploymentUpdate
+	err    error
 }
 
 // New creates a new Pipeline with the necessary models and WebSocket hub.
@@ -50,16 +74,74 @@ func New(dm data.DeploymentModeler, h *hub.Hub, r *Router) *Pipeline {
 	}
 }
 
+// logLine persists a single log line to the database and publishes it to the
+// WebSocket hub. It is the single low-level primitive for all one-off and
+// streaming log messages throughout the pipeline.
+func (p *Pipeline) logLine(id int64, phase, msg string) (int64, error) {
+	logID, err := p.deployment.AppendLog(id, phase, msg)
+	if err != nil {
+		return 0, err
+	}
+	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
+	return logID, nil
+}
+
+// publishStatus persists the deployment status to the database, publishes a
+// status change to the hub, and appends a human-readable log line via logLine.
+func (p *Pipeline) publishStatus(dc pipelineCtx) {
+	if errors.Is(dc.ctx.Err(), context.Canceled) {
+		dc.status = CANCELED
+	}
+
+	dc.update.Status = &dc.status
+
+	// TODO: handle database update error returned
+	p.deployment.UpdateAndGet(dc.ID, *dc.update)
+
+	var msg string
+	switch dc.status {
+	case PENDING:
+		msg = "deployment queued"
+	case BUILDING:
+		msg = "build complete"
+	case DEPLOYING:
+		msg = "deployment started"
+	case FAILED:
+		msg = fmt.Sprintf("%s failed: %v", dc.phase, dc.err)
+	case RUNNING:
+		msg = fmt.Sprintf("deployment live at %s", *dc.update.URL)
+	case CANCELED:
+		msg = "cancellation requested"
+		if dc.err != nil {
+			if errors.Is(dc.ctx.Err(), context.DeadlineExceeded) {
+				msg = "stopping container took too long"
+			}
+		}
+	case STOPPED:
+		msg = "deployment stopped by user"
+	}
+
+	p.logLine(dc.ID, dc.phase, msg)
+
+	url := ""
+	if dc.update.URL != nil {
+		url = *dc.update.URL
+	}
+	p.hub.PublishStatus(dc.ID, dc.status, url)
+}
+
 // Run performs the end-to-end deployment lifecycle for a deployment record.
 func (p *Pipeline) Run(d *data.Deployment) {
-	var buildDir string
-	var imageTag string
-	var address string
-	var phase = "preparation"
-	var err error
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	pc := pipelineCtx{
+		ctx:    ctx,
+		ID:     d.ID,
+		phase:  phasePrepare,
+		status: PENDING,
+		update: &data.DeploymentUpdate{},
+	}
 
 	// Register the task so it can be cancelled via the API
 	p.mu.Lock()
@@ -71,73 +153,85 @@ func (p *Pipeline) Run(d *data.Deployment) {
 		p.mu.Unlock()
 	}()
 
-	buildDir, err = p.Prepare(ctx, d.ID, d.Source)
-	if buildDir != "" {
-		defer os.RemoveAll(buildDir)
-	}
+	p.publishStatus(pc)
 
-	if err == nil {
-		phase = phaseBuild
-		imageTag, err = p.Build(ctx, d.ID, buildDir)
-	}
-
-	if err == nil {
-		phase = phaseDeploy
-		address, err = p.StartContainer(ctx, d.ID, imageTag)
-	}
-
-	if err == nil {
-		phase = phaseRouting
-		err = p.router.AddRoute(d.ID, address)
-	}
-
+	pc.status = BUILDING
+	buildDir, err := p.Prepare(ctx, d.ID, d.Source)
 	if err != nil {
-		status := data.FAILED
-		if errors.Is(ctx.Err(), context.Canceled) {
-			status = data.CANCELED
-		}
+		pc.err = err
+		p.publishStatus(pc)
+		return
+	}
+	// TODO: reconsider this for pause/resume deployments in the future
+	defer os.RemoveAll(buildDir)
 
-		// TODO: handle database update error returned
-		p.deployment.UpdateAndGet(d.ID, data.DeploymentUpdate{Status: &status})
+	p.publishStatus(pc)
 
-		msg := fmt.Sprintf("%s failed: %v", phase, err)
-		logID, _ := p.deployment.AppendLog(d.ID, phase, msg)
-		p.hub.PublishLog(d.ID, hub.LogMessage{ID: logID, Line: msg})
-		p.hub.PublishStatus(d.ID, status, "")
+	pc.phase = phaseBuild
+	imageTag, err := p.Build(ctx, d.ID, buildDir)
+	if err != nil {
+		pc.err = err
+		p.publishStatus(pc)
+		return
+	}
+	pc.update.ImageTag = &imageTag
+
+	p.publishStatus(pc)
+
+	pc.phase = phaseDeploy
+	pc.status = DEPLOYING
+	addr, err := p.StartContainer(ctx, d.ID)
+	if err != nil {
+		pc.err = err
+		p.publishStatus(pc)
 		return
 	}
 
+	p.publishStatus(pc)
+
+	pc.phase = phaseRouting
+	err = p.router.AddRoute(d.ID, addr)
+	if err != nil {
+		pc.err = err
+		p.publishStatus(pc)
+		return
+	}
+
+	p.publishStatus(pc)
+
+	status := RUNNING
 	url := fmt.Sprintf("http://%d.localhost", d.ID)
 
-	status := data.RUNNING
-	// TODO: handle this error
-	p.deployment.UpdateAndGet(d.ID, data.DeploymentUpdate{
-		Status:  &status,
-		URL:     &url,
-		Address: &address,
-	})
+	pc.status = status
+	pc.update.URL = &url
+	pc.update.Status = &status
+	pc.update.Address = &addr
 
-	msg := fmt.Sprintf("deployment live at %s", url)
-	logID, _ := p.deployment.AppendLog(d.ID, phaseDeploy, msg)
-	p.hub.PublishLog(d.ID, hub.LogMessage{ID: logID, Line: msg})
-	p.hub.PublishStatus(d.ID, status, url)
+	p.publishStatus(pc)
 }
 
 // Cancel stops a deployment by either cancelling the active context
 // or stopping the associated container if it's already running.
-func (p *Pipeline) Cancel(deploymentID int64) error {
+func (p *Pipeline) Cancel(ID int64) error {
 	p.mu.Lock()
-	cancel, ok := p.activeTasks[deploymentID]
+	cancel, ok := p.activeTasks[ID]
+	if ok {
+		cancel()
+	}
 	p.mu.Unlock()
 
-	if !ok {
-		return p.StopContainer(deploymentID)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	dc := pipelineCtx{
+		ctx:    ctx,
+		status: CANCELED,
+		ID:     ID,
+		update: &data.DeploymentUpdate{},
 	}
-	cancel()
 
-	msg := "cancellation requested"
-	logID, _ := p.deployment.AppendLog(deploymentID, phaseCancel, msg)
-	p.hub.PublishLog(deploymentID, hub.LogMessage{ID: logID, Line: msg})
+	p.StopContainer(&dc)
 
-	return nil
+	p.publishStatus(dc)
+
+	return dc.err
 }
