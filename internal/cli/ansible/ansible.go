@@ -1,12 +1,15 @@
 package ansible
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"text/template"
 
 	"github.com/theolujay/appa/internal/cli/config"
@@ -132,13 +135,15 @@ func RunPlaybook(p Playbook) error {
 	}
 	cmd := exec.Command("ansible-playbook", args...)
 	cmd.Dir = ansibleDir()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+
+	var errBuf bytes.Buffer
+	cmd.Stderr = io.MultiWriter(os.Stderr, &errBuf)
 	if err := cmd.Run(); err != nil {
 		return &PlaybookError{
 			Playbook: p.Name,
-			Err:      err,
+			Err:      fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String())),
 		}
 	}
 	return nil

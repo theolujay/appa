@@ -102,9 +102,10 @@ func instanceListCmd() *cobra.Command {
 // initFunc handles the creation of a new instance profile with validation.
 func initFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
-	if config.Exists(name) {
-		return fmt.Errorf("%s: %w", name, errProfileExists)
+	if err := config.Exists(name); err != nil {
+		return fmt.Errorf("%w: %s", err, name)
 	}
+
 	p := config.DefaultProfile(name)
 	p.Name = name
 	if err := config.Save(p); err != nil {
@@ -119,8 +120,8 @@ func initFunc(_ *cobra.Command, args []string) error {
 // It supports validation and re-editing on invalid configuration.
 func editFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
-	if !config.Exists(name) {
-		return fmt.Errorf("%s: %w", name, errProfileNotFound)
+	if err := config.Exists(name); err != nil {
+		return fmt.Errorf("%w: %s", err, name)
 	}
 
 	editor := os.Getenv("APPA_EDITOR")
@@ -191,9 +192,10 @@ func editFunc(_ *cobra.Command, args []string) error {
 // setHostFunc sets the SSH target for an instance profile and tests the connection.
 func setHostFunc(args []string, identityFile string) error {
 	name, target := args[0], args[1]
-	if !config.Exists(name) {
-		return fmt.Errorf("%s: %w", name, errProfileNotFound)
+	if err := config.Exists(name); err != nil {
+		return fmt.Errorf("%w: %s", err, name)
 	}
+
 	user, host, port, err := parseTarget(target)
 	if err != nil {
 		return fmt.Errorf("invalid target: %w", err)

@@ -58,7 +58,7 @@
   ansible.builtin.template:
     src: Caddyfile.j2
     dest: "{{ appa_stack_dir }}/Caddyfile"
-    mode: "0644"
+    mode: "0600"
 
 - name: Render entrypoint.sh
   ansible.builtin.template:

@@ -26,8 +26,8 @@ func PreflightCmd() *cobra.Command {
 // Docker installation status, and configuration requirements.
 func preflightFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
-	if !config.Exists(name) {
-		return fmt.Errorf("%s: %w", name, errProfileNotFound)
+	if err := config.Exists(name); err != nil {
+		return fmt.Errorf("%w: %s", err, name)
 	}
 	p, err := config.Load(name)
 	if err != nil {

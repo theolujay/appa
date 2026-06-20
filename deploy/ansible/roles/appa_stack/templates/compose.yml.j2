@@ -69,6 +69,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 
   caddy:
+    env_file: {{ appa_stack_dir }}/.env
     image: {{ caddy_image }}
     ports:
       - "80:80"

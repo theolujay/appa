@@ -76,8 +76,8 @@ func ApplyCmd() *cobra.Command {
 // inventory generation, and playbook execution.
 func setupFunc(args []string, force bool, tags, skipTags string) error {
 	name := args[0]
-	if !config.Exists(name) {
-		return fmt.Errorf("%w: %s", errProfileNotFound, name)
+	if err := config.Exists(name); err != nil {
+		return fmt.Errorf("%w: %s", err, name)
 	}
 	p, err := config.Load(name)
 	if err != nil {
@@ -95,7 +95,7 @@ func setupFunc(args []string, force bool, tags, skipTags string) error {
 		preflightCmd := PreflightCmd()
 		preflightCmd.SetArgs([]string{name})
 		if err := preflightCmd.Execute(); err != nil {
-			return fmt.Errorf("preflight failed; use --force to skip")
+			return fmt.Errorf("preflight failed: use --force to skip")
 		}
 	}
 
@@ -169,8 +169,8 @@ func setupFunc(args []string, force bool, tags, skipTags string) error {
 // re-running provisioning playbooks with specific tags.
 func applyFunc(args []string, tags, skipTags string) error {
 	name := args[0]
-	if !config.Exists(name) {
-		return fmt.Errorf("%w: %s", errProfileNotFound, name)
+	if err := config.Exists(name); err != nil {
+		return fmt.Errorf("%w: %s", err, name)
 	}
 	p, err := config.Load(name)
 	if err != nil {

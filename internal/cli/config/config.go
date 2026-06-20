@@ -5,9 +5,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"github.com/BurntSushi/toml"
 )
+
+func ValidateName(s string) bool {
+	r, _ := regexp.Compile("^[a-zA-Z0-9_-]+$")
+	return r.MatchString(s)
+}
 
 // Profile represents the configuration for an Appa instance.
 type Profile struct {
@@ -63,7 +69,7 @@ func Load(name string) (Profile, error) {
 	path := ProfilePath(name)
 	_, err := toml.DecodeFile(path, &p)
 	if err != nil {
-		return p, fmt.Errorf("load profile %s: %w", name, err)
+		return p, err
 	}
 	return p, nil
 }
@@ -109,7 +115,13 @@ func List() ([]Profile, error) {
 }
 
 // Exists checks if a profile with the given name exists on disk.
-func Exists(name string) bool {
+func Exists(name string) error {
+	if !ValidateName(name) {
+		return fmt.Errorf("invalid profile name")
+	}
 	_, err := os.Stat(ProfilePath(name))
-	return err == nil
+	if err != nil {
+		return fmt.Errorf("profile not found")
+	}
+	return nil
 }

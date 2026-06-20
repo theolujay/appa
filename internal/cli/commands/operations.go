@@ -72,8 +72,8 @@ func UpgradeCmd() *cobra.Command {
 // SSH connectivity, API health, Docker Compose services, and disk usage.
 func statusFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
-	if !config.Exists(name) {
-		return fmt.Errorf("%s: %w", name, errProfileNotFound)
+	if err := config.Exists(name); err != nil {
+		return fmt.Errorf("%w: %s", err, name)
 	}
 	p, err := config.Load(name)
 	if err != nil {
@@ -157,8 +157,8 @@ func statusFunc(_ *cobra.Command, args []string) error {
 // with optional service filtering and line count limits.
 func logsFunc(args []string, service string, tail int) error {
 	name := args[0]
-	if !config.Exists(name) {
-		return fmt.Errorf("%s: %w", name, errProfileNotFound)
+	if err := config.Exists(name); err != nil {
+		return fmt.Errorf("%w: %s", err, name)
 	}
 	p, err := config.Load(name)
 	if err != nil {
@@ -191,8 +191,8 @@ func logsFunc(args []string, service string, tail int) error {
 // optionally limiting to a specific service.
 func restartFunc(args []string, service string) error {
 	name := args[0]
-	if !config.Exists(name) {
-		return fmt.Errorf("%s: %w", name, errProfileNotFound)
+	if err := config.Exists(name); err != nil {
+		return fmt.Errorf("%w: %s", err, name)
 	}
 	p, err := config.Load(name)
 	if err != nil {
@@ -226,8 +226,8 @@ func restartFunc(args []string, service string) error {
 // version tag. It waits for the API to become healthy after upgrade.
 func upgradeFunc(args []string, version string) error {
 	name := args[0]
-	if !config.Exists(name) {
-		return fmt.Errorf("%s: %w", name, errProfileNotFound)
+	if err := config.Exists(name); err != nil {
+		return fmt.Errorf("%w: %s", err, name)
 	}
 	p, err := config.Load(name)
 	if err != nil {

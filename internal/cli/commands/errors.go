@@ -7,4 +7,5 @@ var (
 	errNoSSHTarget     = errors.New("no SSH target set")
 	errInvalidTarget   = errors.New("target must be in format user@host or user@host:port")
 	errProfileExists   = errors.New("profile already exists")
+	errInvalidName     = errors.New("invalid name")
 )
