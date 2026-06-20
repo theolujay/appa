@@ -46,11 +46,12 @@ spin_start() {
   tput civis 2>/dev/null || true
   local msg="$*"
   (
-    frames=( '⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏' )
-    i=0
+    frames='⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏'
+    i=1
     while true; do
-      printf '\r  %s%s%s  %s' "${BLUE}" "${frames[$i]}" "${NO_COLOR}" "$msg"
-      i=$(( (i + 1) % 10 ))
+      frame=$(printf '%s' "$frames" | cut -d' ' -f$i)
+      printf '\r  %s%s%s  %s' "${BLUE}" "$frame" "${NO_COLOR}" "$msg"
+      i=$(( (i % 10) + 1 ))
       sleep 0.08
     done
   ) &
