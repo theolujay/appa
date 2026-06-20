@@ -2,11 +2,10 @@ package main
 
 import (
 	"errors"
-	"maps"
 	"net/http"
 	"time"
 
-	"github.com/theolujay/appa/internal/data"
+	da "github.com/theolujay/appa/internal/data"
 )
 
 // createAuthenticationTokenHandler() verifies the user's email and
@@ -23,18 +22,25 @@ func (app *application) createAuthenticationTokenHandler(w http.ResponseWriter, 
 		return
 	}
 
-	errs := data.ValidateEmail(input.Email)
-	maps.Copy(errs, data.ValidatePasswordPlaintext(input.Password))
+	var errs []error
+	if err := da.ValidateEmail(input.Email); err != nil {
+		errs = append(errs, err)
+	}
+
+	if err := da.ValidatePasswordPlaintext(input.Password); err != nil {
+		errs = append(errs, err)
+	}
 
 	if len(errs) > 0 {
-		app.failedValidationResponse(w, r, errs)
+		err := errors.Join(errs...)
+		app.failedValidationResponse(w, r, err)
 		return
 	}
 
 	user, err := app.models.Users.GetByEmail(input.Email)
 	if err != nil {
 		switch {
-		case errors.Is(err, data.ErrRecordNotFound):
+		case errors.Is(err, da.ErrRecordNotFound):
 			app.invalidCredentialsResponse(w, r)
 		default:
 			app.serverErrorResponse(w, r, err)
@@ -43,17 +49,16 @@ func (app *application) createAuthenticationTokenHandler(w http.ResponseWriter, 
 	}
 
 	match, err := user.Password.Matches(input.Password)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
 	if !match {
-		switch err {
-		case nil:
-			app.invalidCredentialsResponse(w, r)
-		default:
-			app.serverErrorResponse(w, r, err)
-		}
+		app.invalidCredentialsResponse(w, r)
 		return
 	}
 
-	token, err := app.models.Tokens.New(user.ID, 24*time.Hour, data.ScopeAuthentication)
+	token, err := app.models.Tokens.New(user.ID, 24*time.Hour, da.ScopeAuthentication)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return

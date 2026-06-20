@@ -5,35 +5,85 @@
 package validator
 
 import (
+	"errors"
+	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 )
 
 var EmailRX = regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
 
 type Validator struct {
-	Errors map[string]string
+	Errors ValidationErrors
 }
 
-type Error map[string]string
+type ValidationError struct {
+	Field   string
+	Message string
+}
+
+func (e ValidationError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Field, e.Message)
+}
+
+type ValidationErrors []ValidationError
+
+func (es ValidationErrors) Error() string {
+	if len(es) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, e := range es {
+		if i > 0 {
+			_, _ = b.WriteString("; ")
+		}
+		b.WriteString(e.Error())
+	}
+	return b.String()
+}
+
+func (es ValidationErrors) Unwrap() []error {
+	if len(es) == 0 {
+		return nil
+	}
+	errs := make([]error, len(es))
+	for i, e := range es {
+		errs[i] = e
+	}
+	return errs
+}
+
+func (v *Validator) Err() error {
+	if len(v.Errors) == 0 {
+		return nil
+	}
+	var errs []error
+	for _, e := range v.Errors {
+		errs = append(errs, e)
+	}
+	return errors.Join(errs...)
+}
 
 func New() *Validator {
-	return &Validator{Errors: make(map[string]string)}
+	return &Validator{ValidationErrors{}}
 }
 
 func (v *Validator) Valid() bool {
 	return len(v.Errors) == 0
 }
 
-func (v *Validator) AddError(key, message string) {
-	if _, exists := v.Errors[key]; !exists {
-		v.Errors[key] = message
+func (v *Validator) AddError(field, message string) {
+	e := ValidationError{
+		Field:   field,
+		Message: message,
 	}
+	v.Errors = append(v.Errors, e)
 }
 
-func (v *Validator) Check(ok bool, key, message string) {
+func (v *Validator) Check(ok bool, field, message string) {
 	if !ok {
-		v.AddError(key, message)
+		v.AddError(field, message)
 	}
 }
 

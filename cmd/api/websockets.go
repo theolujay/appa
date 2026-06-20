@@ -38,6 +38,9 @@ func (app *application) streamLogsHandler(w http.ResponseWriter, r *http.Request
 
 	id, err := app.readIDParam(r)
 	if err != nil || id < 1 {
+		if errors.Is(err, ErrParamInvalid) {
+			err = fmt.Errorf("%w: ID", err)
+		}
 		app.badRequestResponse(w, r, err)
 		return
 	}

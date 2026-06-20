@@ -22,13 +22,16 @@ type Metadata struct {
 	TotalRecords int `json:"total_records,omitzero"`
 }
 
-func ValidateFilters(f Filters) vd.Error {
+func ValidateFilters(f Filters) error {
 	v := vd.New()
 	v.Check(f.Page > 0, "page", "must be greater than zero")
 	v.Check(f.Page <= 1_000_000, "page", "must be a maximum of 10 million")
 	v.Check(f.PageSize > 0, "page_size", "must be greater than zero")
 	v.Check(f.PageSize <= 100, "page_size", "must be a maximum of 100")
 	v.Check(vd.PermittedValue(f.Sort, f.SortSafelist...), "sort", "invalid sort value")
+	if v.Valid() {
+		return nil
+	}
 	return v.Errors
 }
 

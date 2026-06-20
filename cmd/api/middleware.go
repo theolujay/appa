@@ -128,7 +128,7 @@ func (app *application) rateLimit(next http.Handler) http.Handler {
 
 	// Launch a background goroutine which removes old entries from
 	// the clients map once every minute.
-	go func() {
+	fn := func() {
 		for {
 			time.Sleep(time.Minute)
 
@@ -147,7 +147,8 @@ func (app *application) rateLimit(next http.Handler) http.Handler {
 			// Unlock the mutext when the clean up is complete
 			mu.Unlock()
 		}
-	}()
+	}
+	app.background(fn)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if app.config.limiter.enabled {
@@ -356,8 +357,8 @@ func (app *application) authenticate(next http.Handler) http.Handler {
 			return
 		}
 
-		if errs := data.ValidateTokenPlaintext(token); len(errs) > 0 {
-			app.logger.Warn("invalid token format", "token", errs)
+		if err := data.ValidateTokenPlaintext(token); err != nil {
+			app.logger.Warn("invalid token format", "token", err)
 			app.invalidAuthenticationTokenResponse(w, r)
 			return
 		}

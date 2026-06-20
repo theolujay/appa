@@ -34,6 +34,11 @@ func (app *application) serve() error {
 	// Start a background goroutine which will wait for an interrupt signal and
 	// then gracefully shut down the server.
 	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				app.logger.Error(fmt.Sprintf("panic: %v", err))
+			}
+		}()
 		// Create a 'quit' buffered channel which carries os.Signal values.
 		// NOTE: a buffered channel is used here because signal.Notify() does
 		// not wait for a receiver to be available when sending a signal to the

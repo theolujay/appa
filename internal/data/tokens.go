@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	"fmt"
 	"time"
 
 	vd "github.com/theolujay/appa/internal/validator"
@@ -35,10 +36,13 @@ type TokenModeler interface {
 
 // Check that the plaintext token has been provided
 // and is exactly 26 bytes long.
-func ValidateTokenPlaintext(tokenPlaintext string) vd.Error {
+func ValidateTokenPlaintext(tokenPlaintext string) error {
 	v := vd.New()
 	v.Check(tokenPlaintext != "", "token", "must be provided")
 	v.Check(len(tokenPlaintext) == 26, "token", "must be 26 bytes long")
+	if v.Valid() {
+		return nil
+	}
 	return v.Errors
 }
 
@@ -78,7 +82,7 @@ func (m TokenModel) Insert(token *Token) error {
 	defer cancel()
 
 	_, err := m.DB.ExecContext(ctx, query, args...)
-	return err
+	return fmt.Errorf("tokens.insert: %w", err)
 }
 
 // DeleteAllForUser() deletes all tokens for a specific user and scope.
@@ -92,5 +96,5 @@ func (m TokenModel) DeleteAllForUser(scope string, userID int64) error {
 	defer cancel()
 
 	_, err := m.DB.ExecContext(ctx, query, scope, userID)
-	return err
+	return fmt.Errorf("tokens.deleteAllForUser: %w", err)
 }

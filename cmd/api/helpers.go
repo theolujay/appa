@@ -12,10 +12,19 @@ import (
 	"strings"
 
 	"github.com/julienschmidt/httprouter"
-	vd "github.com/theolujay/appa/internal/validator"
 )
 
 type envelope map[string]any
+
+var (
+	ErrJSONMalformed      = errors.New("body contains malformed JSON")
+	ErrJSONTypeError      = errors.New("body contains incorrect JSON type")
+	ErrJSONEmpty          = errors.New("body must not be empty")
+	ErrJSONUnknownKey     = errors.New("body contains unknown key")
+	ErrJSONTooLarge       = errors.New("body too large")
+	ErrParamInvalid       = errors.New("invalid parameter")
+	ErrJSONMultipleValues = errors.New("body must only contain a single JSON value")
+)
 
 // readIDParam pulls the value of `id` in a URL path, like in
 // <baseURL>/movies/:id
@@ -32,7 +41,7 @@ func (app *application) readIDParam(r *http.Request) (int64, error) {
 	// invalid, so throw notFound
 	id, err := strconv.ParseInt(params.ByName("id"), 10, 64)
 	if err != nil {
-		return 0, errors.New("invalid id parameter")
+		return 0, ErrParamInvalid
 	}
 
 	return id, nil
@@ -98,7 +107,7 @@ func (app *application) readJSON(w http.ResponseWriter, r *http.Request, dst any
 		// (not errors.Is) because we need to read that field to give the client a
 		// precise location
 		case errors.As(err, &syntaxError):
-			return fmt.Errorf("body contains badly-formed JSON (at character %d)", syntaxError.Offset)
+			return fmt.Errorf("%w: at character %d)", ErrJSONMalformed, syntaxError.Offset)
 
 		// Due to an inconsistency in the encoding/json package, Decode() can also return
 		// io.ErrUnexpectedEOF for certain syntax errors -- particularly truncated input
@@ -106,7 +115,7 @@ func (app *application) readJSON(w http.ResponseWriter, r *http.Request, dst any
 		// separately because the error arrives as a plain sentinel value with no
 		// structured payload to extract
 		case errors.Is(err, io.ErrUnexpectedEOF):
-			return errors.New("body contains badly-formed JSON")
+			return ErrJSONMalformed
 
 		// *json.UnmarshalTypeError means the JSON was syntactically valid, but a value's
 		// type doesn't match the targe Go field. For example, sending a sring where an
@@ -114,14 +123,14 @@ func (app *application) readJSON(w http.ResponseWriter, r *http.Request, dst any
 		// field name and byte offset -- so we use errors.As to extract them and build a
 		case errors.As(err, &unmarshalTypeError):
 			if unmarshalTypeError.Field != "" {
-				return fmt.Errorf("body contains incorrect JSON type for field %q", unmarshalTypeError.Field)
+				return fmt.Errorf("%w: for field %q", ErrJSONTypeError, unmarshalTypeError.Field)
 			}
-			return fmt.Errorf("body contains incorrect JSON type (at character %d)", unmarshalTypeError.Offset)
+			return fmt.Errorf("%w: at character %d)", ErrJSONTypeError, unmarshalTypeError.Offset)
 
 		// io.EOF means the request body was completely empty. This is a plain sentinel
 		//-- no payload to extract -- so errors.Is is suffienct.
 		case errors.Is(err, io.EOF):
-			return errors.New("body must not be empty")
+			return ErrJSONEmpty
 
 		// If the JSON contains a field that cannot be mapped to the target destination
 		// then Decoded() will now return an error message in the format `json: unknown
@@ -132,13 +141,13 @@ func (app *application) readJSON(w http.ResponseWriter, r *http.Request, dst any
 		// error type in the future.
 		case strings.HasPrefix(err.Error(), "json: unknown field "):
 			fieldName := strings.TrimPrefix(err.Error(), "json: unknown field ")
-			return fmt.Errorf("body contains unknown key %s", fieldName)
+			return fmt.Errorf("%w: %s", ErrJSONUnknownKey, fieldName)
 
 		// Use errors.As() to check whether the error has the type *http.MaxBytesError.
 		// If it does, then it means the request body exceeded our size limit of 1MB
 		// and we return a clear error message.
 		case errors.As(err, &maxBytesError):
-			return fmt.Errorf("body must not be larger than %d bytes", maxBytesError.Limit)
+			return fmt.Errorf("%w: max %d bytes", ErrJSONTooLarge, maxBytesError.Limit)
 
 		// *json.InvalidUnmarshalError means `dst` was passed as nil or a non-pointer.
 		// This is a programming error -- a bug where readJSON was called -- not a
@@ -164,7 +173,7 @@ func (app *application) readJSON(w http.ResponseWriter, r *http.Request, dst any
 	// so return a custom error message.
 	err = dec.Decode(&struct{}{})
 	if !errors.Is(err, io.EOF) {
-		return errors.New("body must only contain a single JSON value")
+		return ErrJSONMultipleValues
 	}
 
 	return nil
@@ -201,7 +210,7 @@ func (app *application) readString(qs url.Values, key, defaultValue string) stri
 // could be found, it returns the provided default value. If the value
 // couldn't be converted to an integer, then we record an error message
 // in the provided Validator instance.
-func (app *application) readInt(qs url.Values, key string, defaultValue int) (int, vd.Error) {
+func (app *application) readInt(qs url.Values, key string, defaultValue int) (int, error) {
 
 	s := qs.Get(key)
 	if s == "" {
@@ -209,7 +218,7 @@ func (app *application) readInt(qs url.Values, key string, defaultValue int) (in
 	}
 	i, err := strconv.Atoi(s)
 	if err != nil {
-		return defaultValue, vd.Error{key: "must be an integer value"}
+		return defaultValue, ErrParamInvalid
 	}
 	return i, nil
 }
@@ -220,10 +229,9 @@ func (app *application) background(fn func()) {
 	app.wg.Go(func() {
 		defer func() {
 			if err := recover(); err != nil {
-				app.logger.Error(fmt.Sprintf("%v", err))
+				app.logger.Error(fmt.Sprintf("panic %v", err))
 			}
 		}()
-
 		fn()
 	})
 }

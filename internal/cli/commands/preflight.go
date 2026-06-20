@@ -27,14 +27,14 @@ func PreflightCmd() *cobra.Command {
 func preflightFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
 	if !config.Exists(name) {
-		return fmt.Errorf("profile %q not found", name)
+		return fmt.Errorf("%s: %w", name, ErrProfileNotFound)
 	}
 	p, err := config.Load(name)
 	if err != nil {
 		return err
 	}
 	if p.SSHHost == "" {
-		return fmt.Errorf("no SSH target set for %q; run 'appa instance set-host %s user@host'", name, name)
+		return fmt.Errorf("no SSH target set for %q; run 'appa instance set-host %s user@host': %w", name, name, ErrNoSSHTarget)
 	}
 
 	output.Section("Preflight Checks for %q", name)

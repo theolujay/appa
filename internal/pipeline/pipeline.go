@@ -80,10 +80,22 @@ func New(dm data.DeploymentModeler, h *hub.Hub, r *Router) *Pipeline {
 func (p *Pipeline) logLine(id int64, phase, msg string) (int64, error) {
 	logID, err := p.deployment.AppendLog(id, phase, msg)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("append log: %w", err)
 	}
 	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
 	return logID, nil
+}
+
+// recoverFunc handles panics from pipeline goroutines by marking the
+// waitgroup done and logging the panic for the given deployment phase.
+func (p *Pipeline) recoverFunc(id int64, phase string) {
+	if err := recover(); err != nil {
+		if id == 0 || phase == "" {
+			fmt.Printf("panic: %v", err)
+		} else {
+			p.logLine(id, phase, fmt.Sprintf("panic: %v", err))
+		}
+	}
 }
 
 // publishStatus persists the deployment status to the database, publishes a
@@ -95,8 +107,10 @@ func (p *Pipeline) publishStatus(dc pipelineCtx) {
 
 	dc.update.Status = &dc.status
 
-	// TODO: handle database update error returned
-	p.deployment.UpdateAndGet(dc.ID, *dc.update)
+	_, err := p.deployment.UpdateAndGet(dc.ID, *dc.update)
+	if err != nil {
+		p.logLine(dc.ID, dc.phase, fmt.Sprintf("%v", err))
+	}
 
 	var msg string
 	switch dc.status {

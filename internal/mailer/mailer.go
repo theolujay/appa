@@ -74,7 +74,7 @@ func (m *Mailer) Send(recipient, templateFile string, data any) error {
 	// auto-escaping prevents XSS — the same template file, different engine.
 	htmlTmpl, err := ht.New("").ParseFS(templateFS, "templates/"+templateFile)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	htmlBody := new(bytes.Buffer)

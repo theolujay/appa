@@ -1,10 +1,13 @@
 package ssh
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
 )
+
+var ErrSSHConnectionFailed = errors.New("ssh connection failed")
 
 type Client struct {
 	User         string
@@ -51,7 +54,7 @@ func TestConnect(user, host string, port int, identityFile ...string) error {
 	cmd := exec.Command("ssh", a...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("ssh connection failed: %w\n%s", err, string(out))
+		return fmt.Errorf("%w: %s", ErrSSHConnectionFailed, string(out))
 	}
 	return nil
 }
@@ -64,7 +67,7 @@ func RunCommand(c Client, cmdLine string) (string, error) {
 	cmd := exec.Command("ssh", a...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return string(out), fmt.Errorf("remote command failed: %w", err)
+		return "", fmt.Errorf("%w: %s", ErrSSHConnectionFailed, strings.TrimRight(string(out), "\n\r\t "))
 	}
 	return string(out), nil
 }

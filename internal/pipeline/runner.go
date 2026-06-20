@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
@@ -22,7 +24,7 @@ import (
 func (p *Pipeline) StartContainer(ctx context.Context, id int64) (string, error) {
 	d, err := p.deployment.Get(id)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", ErrDeployFailed, err)
 	}
 
 	p.mu.Lock()
@@ -30,12 +32,12 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64) (string, error)
 
 	hPort, err := getPort()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", ErrDeployFailed, err)
 	}
 
 	res, err := p.dockerClient.ImageInspect(ctx, *d.ImageTag)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", ErrDeployFailed, err)
 	}
 
 	cPort := "3000/tcp"
@@ -90,12 +92,12 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64) (string, error)
 	})
 
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", ErrDeployFailed, err)
 	}
 
 	_, err = p.dockerClient.ContainerStart(ctx, createResp.ID, client.ContainerStartOptions{})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", ErrDeployFailed, err)
 	}
 
 	addr := net.JoinHostPort(cName, strings.Split(cPort, "/")[0])
@@ -112,10 +114,11 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64) (string, error)
 	}
 
 	if !healthy {
-		return "", fmt.Errorf("container did not respond on port %d", hPort)
+		return "", fmt.Errorf("%w: container did not respond on port %d: %w", ErrDeployFailed, hPort, ErrContainerNotReady)
 	}
 
 	go func() {
+		defer p.recoverFunc(id, phaseDeploy)
 		logReader, err := p.dockerClient.ContainerLogs(ctx, createResp.ID, client.ContainerLogsOptions{
 			ShowStdout: true,
 			ShowStderr: true,
@@ -136,11 +139,16 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64) (string, error)
 		// writes clean stdout bytes into pw. Stderr chunks go to io.Discard,
 		// or can be directed to pw to merge them.
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					p.logLine(id, phaseDeploy, fmt.Sprintf("panic: %v", r))
+				}
+			}()
 			stdcopy.StdCopy(pw, pw, logReader)
 			pw.Close()
 		}()
 
-		filtered := caddyLogFilter(pr)
+		filtered := p.caddyLogFilter(pr)
 		p.streamLogs(id, phaseDeploy, filtered)
 	}()
 
@@ -155,7 +163,7 @@ func (p *Pipeline) StopContainer(dc *pipelineCtx) {
 		case errors.Is(err, data.ErrRecordNotFound):
 			dc.err = fmt.Errorf("deployment not found")
 		default:
-			dc.err = err
+			dc.err = fmt.Errorf("%w: %w", ErrDeployFailed, err)
 		}
 		return
 	}
@@ -170,26 +178,16 @@ func (p *Pipeline) StopContainer(dc *pipelineCtx) {
 		dc.ctx, cName, client.ContainerStopOptions{},
 	)
 	if err != nil {
-		errMsg := strings.ToLower(err.Error())
-		if !strings.Contains(errMsg, "no such container") {
-			dc.err = fmt.Errorf("failed to stop container %s: %s", cName, errMsg)
+		if !cerrdefs.IsNotFound(err) {
+			dc.err = fmt.Errorf("%w: %w", ErrContainerFailed, err)
 			return
 		}
 	}
 
 	err = p.router.RemoveRoute(dc.ID)
-
-	url := ""
-	status := STOPPED
-	imageTag := ""
-
-	dc.status = status
-	dc.update = &data.DeploymentUpdate{
-		URL:      &url,
-		Status:   &status,
-		ImageTag: &imageTag,
+	if err != nil {
+		dc.err = fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
-	dc.err = err
 }
 
 // getPort finds and returns an available TCP port by binding to port 0 on localhost.
@@ -197,7 +195,7 @@ func getPort() (int, error) {
 	// the port number is automatically chosen with 0 as port in address parameter
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("listen on free port: %w", err)
 	}
 	defer ln.Close()
 	return ln.Addr().(*net.TCPAddr).Port, nil
@@ -205,9 +203,10 @@ func getPort() (int, error) {
 
 // caddyLogFilter removes Caddy HTTP access logs from an input stream.
 // It is used to prevent the deployment logs from being flooded with routine request information.
-func caddyLogFilter(r io.Reader) io.Reader {
+func (p *Pipeline) caddyLogFilter(r io.Reader) io.Reader {
 	pr, pw := io.Pipe()
 	go func() {
+		defer p.recoverFunc(0, "")
 		s := bufio.NewScanner(r)
 		for s.Scan() {
 			if !strings.Contains(s.Text(), `"logger":"http.log.access`) {
@@ -216,7 +215,7 @@ func caddyLogFilter(r io.Reader) io.Reader {
 			}
 		}
 		if s.Err() != nil {
-			fmt.Println(pw, s.Err())
+			fmt.Fprintf(os.Stderr, "caddy log scanner error: %v\n", s.Err())
 		}
 		pw.Close()
 	}()

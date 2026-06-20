@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -88,7 +89,7 @@ func List() ([]Profile, error) {
 	instancesDir := filepath.Join(configDir(), "instances")
 	entries, err := os.ReadDir(instancesDir)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("list profiles: %w", err)

@@ -36,8 +36,8 @@ func (app *application) registerUserHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if errs := data.ValidateUser(user); len(errs) > 0 {
-		app.failedValidationResponse(w, r, errs)
+	if err := data.ValidateUser(user); err != nil {
+		app.failedValidationResponse(w, r, err)
 		return
 	}
 
@@ -45,8 +45,9 @@ func (app *application) registerUserHandler(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		switch {
 		case errors.Is(err, data.ErrDuplicateEmail):
-			app.failedValidationResponse(w, r, vd.Error{
-				"email": "a user with this email already exists",
+			app.failedValidationResponse(w, r, vd.ValidationError{
+				Field:   "email",
+				Message: "a user with this email already exists",
 			})
 		default:
 			app.serverErrorResponse(w, r, err)
@@ -92,8 +93,8 @@ func (app *application) activateUserHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if errs := data.ValidateTokenPlaintext(input.TokenPlaintext); len(errs) > 0 {
-		app.failedValidationResponse(w, r, errs)
+	if err := data.ValidateTokenPlaintext(input.TokenPlaintext); err != nil {
+		app.failedValidationResponse(w, r, err)
 		return
 	}
 
@@ -104,9 +105,11 @@ func (app *application) activateUserHandler(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		switch {
 		case errors.Is(err, data.ErrRecordNotFound):
-			app.failedValidationResponse(w, r, vd.Error{
-				"token": "invalid or expired activation token",
-			})
+			app.failedValidationResponse(w, r, vd.ValidationErrors{
+				vd.ValidationError{
+					Field:   "token",
+					Message: "invalid or expired activation token",
+				}})
 		default:
 			app.serverErrorResponse(w, r, err)
 		}

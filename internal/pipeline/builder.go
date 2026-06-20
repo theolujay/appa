@@ -23,7 +23,7 @@ const (
 func (p *Pipeline) Prepare(ctx context.Context, id int64, source string) (string, error) {
 	buildDir, err := p.cloneRepo(ctx, source, id)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", ErrPrepareFailed, err)
 	}
 
 	p.logLine(id, phaseBuild, "preparing...")
@@ -47,7 +47,7 @@ func (p *Pipeline) Prepare(ctx context.Context, id int64, source string) (string
 	// TODO: implement better handling for secrets
 	d, err := p.deployment.Get(id)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", ErrPrepareFailed, err)
 	}
 	if d.EnvVars != nil && *d.EnvVars != "" {
 		envLines := strings.SplitSeq(*d.EnvVars, "\n")
@@ -61,7 +61,7 @@ func (p *Pipeline) Prepare(ctx context.Context, id int64, source string) (string
 
 	err = p.PipeLogs(cmd, id, phaseBuild)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", ErrPrepareFailed, err)
 	}
 
 	return buildDir, nil
@@ -76,7 +76,7 @@ func (p *Pipeline) Build(ctx context.Context, id int64, buildDir string) (string
 	railpackVersion := os.Getenv("RAILPACK_VERSION")
 
 	if railpackVersion == "" {
-		return "", fmt.Errorf("build failed: railpack version not set")
+		return "", fmt.Errorf("%w: railpack version not set", ErrBuildFailed)
 	}
 
 	p.logLine(id, phaseBuild, "building...")
@@ -101,25 +101,27 @@ func (p *Pipeline) Build(ctx context.Context, id int64, buildDir string) (string
 	// Pipe buildctl's stdout (docker image tarball) into docker load's stdin
 	out, err := buildctl.StdoutPipe()
 	if err != nil {
-		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
+		return "", fmt.Errorf("%w: %w", ErrBuildFailed, err)
 	}
 	dockerLoad.Stdin = out
 
 	// Stream stderr (BuildKit progress output) through the logging system
 	stderr, err := buildctl.StderrPipe()
 	if err != nil {
-		return "", fmt.Errorf("failed to create stderr pipe: %w", err)
+		return "", fmt.Errorf("%w: %w", ErrBuildFailed, err)
 	}
 
 	if err := dockerLoad.Start(); err != nil {
-		return "", fmt.Errorf("failed to start docker load: %w", err)
+		return "", fmt.Errorf("%w: %w", ErrBuildFailed, err)
 	}
 	if err := buildctl.Start(); err != nil {
-		return "", fmt.Errorf("failed to start buildctl: %w", err)
+		return "", fmt.Errorf("%w: %w", ErrBuildFailed, err)
 	}
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
+		defer wg.Done()
+		defer p.recoverFunc(id, phaseBuild)
 		p.streamLogs(id, phaseBuild, stderr)
 	})
 
@@ -128,10 +130,10 @@ func (p *Pipeline) Build(ctx context.Context, id int64, buildDir string) (string
 	loadErr := dockerLoad.Wait()
 
 	if buildErr != nil {
-		return "", fmt.Errorf("buildctl failed: %w", buildErr)
+		return "", fmt.Errorf("%w: %w", ErrBuildFailed, buildErr)
 	}
 	if loadErr != nil {
-		return "", fmt.Errorf("docker load failed: %w", loadErr)
+		return "", fmt.Errorf("%w: %w", ErrBuildFailed, loadErr)
 	}
 
 	return imageTag, nil
@@ -163,7 +165,7 @@ func (p *Pipeline) cloneRepo(ctx context.Context, source string, id int64) (stri
 	// then clean it up afterwards
 	tmpDir, err := os.MkdirTemp("", "appa-build-*")
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp dir: %w", err)
+		return "", fmt.Errorf("%w: %w", ErrPrepareFailed, err)
 	}
 
 	buildDir := tmpDir
@@ -174,7 +176,7 @@ func (p *Pipeline) cloneRepo(ctx context.Context, source string, id int64) (stri
 	cloneCmd := exec.CommandContext(ctx, "git", "clone", "--quiet", "--depth=1", source, buildDir)
 	cloneOut, err := cloneCmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("git clone failed: %s", string(cloneOut))
+		return "", fmt.Errorf("%w: git clone failed: %s", ErrPrepareFailed, string(cloneOut))
 	}
 	p.logLine(id, phaseBuild, "clone complete")
 
@@ -188,18 +190,18 @@ func (p *Pipeline) PipeLogs(cmd *exec.Cmd, id int64, phase string) error {
 	// Attach pipes to stdout and stderr so they're read as build runs.
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("failed to create stdout pipe: %w", err)
+		return fmt.Errorf("%w: %w", ErrPrepareFailed, err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return fmt.Errorf("failed to create stderr pipe: %w", err)
+		return fmt.Errorf("%w: %w", ErrPrepareFailed, err)
 	}
 
 	// Launches the process but doesn't wait for it to finish and returns control
 	// so pipes can be read.
 	err = cmd.Start()
 	if err != nil {
-		return fmt.Errorf("failed to start command: %w", err)
+		return fmt.Errorf("%w: %w", ErrPrepareFailed, err)
 	}
 
 	// Stream both stdout and stderr to the hub and database. Merge them into
@@ -208,12 +210,23 @@ func (p *Pipeline) PipeLogs(cmd *exec.Cmd, id int64, phase string) error {
 	// to finish before calling cmd.Wait().
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() { defer wg.Done(); p.streamLogs(id, phase, stdout) }()
-	go func() { defer wg.Done(); p.streamLogs(id, phase, stderr) }()
+	go func() {
+		defer wg.Done()
+		defer p.recoverFunc(id, phase)
+		p.streamLogs(id, phase, stdout)
+	}()
+	go func() {
+		defer wg.Done()
+		defer p.recoverFunc(id, phase)
+		p.streamLogs(id, phase, stderr)
+	}()
 	wg.Wait()
 
 	// Now wait for the process to exit...
 	// cmd.Wait() returns an error if the process exits with a non-zero code,
 	// which would mean the build failed.
-	return cmd.Wait()
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("%w: %w", ErrPrepareFailed, err)
+	}
+	return nil
 }

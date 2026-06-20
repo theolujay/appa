@@ -49,13 +49,16 @@ type DeploymentModeler interface {
 	UpdateAndGet(id int64, u DeploymentUpdate) (*Deployment, error)
 }
 
-func ValidateDeployment(d *Deployment) vd.Error {
+func ValidateDeployment(d *Deployment) error {
 	v := vd.New()
 	v.Check(d.Source != "", "source", "must be provided")
 	v.Check(len(d.Source) <= 500, "source", "must not be more than 500 bytes long")
 	if d.EnvVars != nil && *d.EnvVars != "" {
 		i := validateEnvVars(*d.EnvVars)
 		v.Check(i == 0, "env_vars", fmt.Sprintf("invalid key-value pair at line %d", i))
+	}
+	if v.Valid() {
+		return nil
 	}
 	return v.Errors
 }
@@ -90,7 +93,7 @@ func (dm *DeploymentModel) Create(d *Deployment) error {
 		&d.Version,
 	)
 
-	return err
+	return fmt.Errorf("deployments.create: %w", err)
 }
 
 func (dm *DeploymentModel) Get(id int64) (*Deployment, error) {
@@ -121,7 +124,7 @@ func (dm *DeploymentModel) Get(id int64) (*Deployment, error) {
 		case errors.Is(err, sql.ErrNoRows):
 			return nil, ErrRecordNotFound
 		default:
-			return nil, err
+			return nil, fmt.Errorf("deployments.get: %w", err)
 		}
 	}
 
@@ -132,7 +135,8 @@ func (dm *DeploymentModel) GetAllForUser(
 	id int64, status string, filters Filters,
 ) ([]Deployment, Metadata, error) {
 	totalRecords := 0
-	metadata := Metadata{}
+	md := Metadata{}
+	dy := []Deployment{}
 	deployments := make([]Deployment, 0, filters.limit())
 
 	query := fmt.Sprintf(`
@@ -154,9 +158,9 @@ func (dm *DeploymentModel) GetAllForUser(
 	if err != nil {
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
-			return []Deployment{}, metadata, err
+			err = ErrRecordNotFound
 		}
-		return []Deployment{}, metadata, err
+		return dy, md, fmt.Errorf("deployments.getAllForUser: %w", err)
 	}
 	defer rows.Close()
 
@@ -176,18 +180,18 @@ func (dm *DeploymentModel) GetAllForUser(
 			&d.Version,
 		)
 		if err != nil {
-			return []Deployment{}, metadata, err
+			return dy, md, fmt.Errorf("deployments.getAllForUser: %w", err)
 		}
 		deployments = append(deployments, d)
 	}
 
 	if err := rows.Err(); err != nil {
-		return []Deployment{}, metadata, err
+		return dy, md, fmt.Errorf("deployments.getAllForUser: %w", err)
 	}
 
-	metadata = calculateMetadata(totalRecords, filters.Page, filters.PageSize)
+	md = calculateMetadata(totalRecords, filters.Page, filters.PageSize)
 
-	return deployments, metadata, nil
+	return deployments, md, nil
 }
 
 type LogEntry struct {
@@ -204,7 +208,7 @@ func (dm *DeploymentModel) GetLogs(id int64) ([]LogEntry, error) {
 
 	rows, err := dm.DB.QueryContext(ctx, query, id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("deployments.getLogs: %w", err)
 	}
 	defer rows.Close()
 
@@ -212,11 +216,14 @@ func (dm *DeploymentModel) GetLogs(id int64) ([]LogEntry, error) {
 	for rows.Next() {
 		var l LogEntry
 		if err := rows.Scan(&l.ID, &l.Line); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("deployments.getLogs: %w", err)
 		}
 		logs = append(logs, l)
 	}
-	return logs, rows.Err()
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("deployments.getLogs: %w", rows.Err())
+	}
+	return logs, nil
 }
 
 func (dm *DeploymentModel) AppendLog(id int64, phase, line string) (int64, error) {
@@ -228,7 +235,7 @@ func (dm *DeploymentModel) AppendLog(id int64, phase, line string) (int64, error
 	var logID int64
 	err := dm.DB.QueryRowContext(ctx, query, id, phase, line).Scan(&logID)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("deployments.appendLog: %w", err)
 	}
 	return logID, nil
 }
@@ -240,6 +247,7 @@ func (dm *DeploymentModel) UpdateAndGet(id int64, u DeploymentUpdate) (*Deployme
 	query := "UPDATE deployments SET "
 	args := make([]any, 0, 6)
 	fields := make([]string, 0, 6)
+	dy := Deployment{}
 
 	if u.Status != nil {
 		fields = append(fields, fmt.Sprintf("status = $%d", len(args)+1))
@@ -263,7 +271,7 @@ func (dm *DeploymentModel) UpdateAndGet(id int64, u DeploymentUpdate) (*Deployme
 	}
 
 	if len(fields) == 0 {
-		return &Deployment{}, nil
+		return &dy, nil
 	}
 
 	query += strings.Join(fields, ", ")
@@ -289,8 +297,7 @@ func (dm *DeploymentModel) UpdateAndGet(id int64, u DeploymentUpdate) (*Deployme
 	)
 
 	if err != nil {
-		return &Deployment{}, err
+		return &dy, fmt.Errorf("deployments.updateAndGet: %w", err)
 	}
 	return &d, nil
-
 }

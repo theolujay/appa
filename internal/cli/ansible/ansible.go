@@ -2,6 +2,7 @@ package ansible
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,22 @@ import (
 
 	"github.com/theolujay/appa/internal/cli/config"
 )
+
+// PlaybookError is returned when an Ansible playbook execution fails.
+// It wraps the underlying execution error (e.g., *exec.ExitError)
+// while providing context about which playbook failed.
+type PlaybookError struct {
+	Playbook string
+	Err      error
+}
+
+func (e *PlaybookError) Error() string {
+	return fmt.Sprintf("playbook (%q) failed: %v", filepath.Base(e.Playbook), e.Err)
+}
+
+func (e *PlaybookError) Unwrap() error {
+	return e.Err
+}
 
 const inventoryTemplate = `
 [appa]
@@ -78,7 +95,7 @@ func ensureDeps() error {
 		return fmt.Errorf("extract ansible files: %w", err)
 	}
 	reqPath := filepath.Join(AnsibleDir(), "requirements.yml")
-	if _, err := os.Stat(reqPath); os.IsNotExist(err) {
+	if _, err := os.Stat(reqPath); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	cmd := exec.Command(
@@ -118,7 +135,13 @@ func RunPlaybook(p Playbook) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return &PlaybookError{
+			Playbook: p.Name,
+			Err:      err,
+		}
+	}
+	return nil
 }
 
 // toJSONString is a helper that converts a map of

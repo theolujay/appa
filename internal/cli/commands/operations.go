@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -72,14 +73,14 @@ func UpgradeCmd() *cobra.Command {
 func statusFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
 	if !config.Exists(name) {
-		return fmt.Errorf("profile %q not found", name)
+		return fmt.Errorf("%s: %w", name, ErrProfileNotFound)
 	}
 	p, err := config.Load(name)
 	if err != nil {
-		return err
+		return fmt.Errorf("load profile %q: %w", name, err)
 	}
 	if p.SSHHost == "" {
-		return fmt.Errorf("no SSH target set for %q", name)
+		return fmt.Errorf("%s: %w", name, ErrNoSSHTarget)
 	}
 
 	output.Section("Status for %q", name)
@@ -101,7 +102,7 @@ func statusFunc(_ *cobra.Command, args []string) error {
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Get(p.APIURL)
 		if err != nil {
-			return fmt.Errorf("unable to reach API: %s", err)
+			return fmt.Errorf("unable to reach API: %w", err)
 		}
 		defer resp.Body.Close()
 
@@ -121,6 +122,9 @@ func statusFunc(_ *cobra.Command, args []string) error {
 		`
 		out, err := ssh.RunCommand(clientConfig, checkCmd)
 		if err != nil {
+			if errors.Is(err, ssh.ErrSSHConnectionFailed) {
+				return fmt.Errorf("cannot execute command: %w", err)
+			}
 			return err
 		}
 
@@ -154,14 +158,14 @@ func statusFunc(_ *cobra.Command, args []string) error {
 func logsFunc(args []string, service string, tail int) error {
 	name := args[0]
 	if !config.Exists(name) {
-		return fmt.Errorf("profile %q not found", name)
+		return fmt.Errorf("%s: %w", name, ErrProfileNotFound)
 	}
 	p, err := config.Load(name)
 	if err != nil {
-		return err
+		return fmt.Errorf("load profile %q: %w", name, err)
 	}
 	if p.SSHHost == "" {
-		return fmt.Errorf("no SSH target set for %q", name)
+		return fmt.Errorf("%s: %w", name, ErrNoSSHTarget)
 	}
 	clientConfig := ssh.Client{
 		User:         p.SSHUser,
@@ -188,14 +192,14 @@ func logsFunc(args []string, service string, tail int) error {
 func restartFunc(args []string, service string) error {
 	name := args[0]
 	if !config.Exists(name) {
-		return fmt.Errorf("profile %q not found", name)
+		return fmt.Errorf("%s: %w", name, ErrProfileNotFound)
 	}
 	p, err := config.Load(name)
 	if err != nil {
-		return err
+		return fmt.Errorf("load profile %q: %w", name, err)
 	}
 	if p.SSHHost == "" {
-		return fmt.Errorf("no SSH target set for %q", name)
+		return fmt.Errorf("%s: %w", name, ErrNoSSHTarget)
 	}
 	clientConfig := ssh.Client{
 		User:         p.SSHUser,
@@ -210,7 +214,7 @@ func restartFunc(args []string, service string) error {
 	output.Success("Restarting services on %q...", name)
 	out, err := ssh.RunCommand(clientConfig, dockerCmd)
 	if err != nil {
-		return fmt.Errorf("restart failed: %w\n%s", err, out)
+		return fmt.Errorf("restart failed: %w", err)
 	}
 	fmt.Print(out)
 	output.Success("Restart complete")
@@ -223,14 +227,14 @@ func restartFunc(args []string, service string) error {
 func upgradeFunc(args []string, version string) error {
 	name := args[0]
 	if !config.Exists(name) {
-		return fmt.Errorf("profile %q not found", name)
+		return fmt.Errorf("%s: %w", name, ErrProfileNotFound)
 	}
 	p, err := config.Load(name)
 	if err != nil {
-		return err
+		return fmt.Errorf("load profile %q: %w", name, err)
 	}
 	if p.SSHHost == "" {
-		return fmt.Errorf("no SSH target set for %q", name)
+		return fmt.Errorf("%s: %w", name, ErrNoSSHTarget)
 	}
 	clientConfig := ssh.Client{
 		User:         p.SSHUser,
@@ -251,14 +255,14 @@ func upgradeFunc(args []string, version string) error {
 	}
 	out, err := ssh.RunCommand(clientConfig, pullCmd)
 	if err != nil {
-		return fmt.Errorf("pull failed: %w\n%s", err, out)
+		return fmt.Errorf("pull failed: %w", err)
 	}
 	fmt.Print(out)
 
 	output.Success("Recreating services...")
 	out, err = ssh.RunCommand(clientConfig, "docker compose -f /opt/appa/compose.yml up -d")
 	if err != nil {
-		return fmt.Errorf("up failed: %w\n%s", err, out)
+		return fmt.Errorf("up failed: %w", err)
 	}
 	fmt.Print(out)
 

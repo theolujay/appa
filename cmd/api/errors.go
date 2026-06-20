@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"net/http"
+
+	vd "github.com/theolujay/appa/internal/validator"
 )
 
 // The logError() method is a generic helper for logging and error
@@ -59,8 +61,10 @@ func (app *application) badRequestResponse(w http.ResponseWriter, r *http.Reques
 	app.errorResponse(w, r, http.StatusBadRequest, err.Error())
 }
 
-func (app *application) failedValidationResponse(w http.ResponseWriter, r *http.Request, errors map[string]string) {
-	app.errorResponse(w, r, http.StatusUnprocessableEntity, errors)
+func (app *application) failedValidationResponse(w http.ResponseWriter, r *http.Request, err error) {
+	m := make(map[string]string)
+	collectFieldErrors(err, m)
+	app.errorResponse(w, r, http.StatusUnprocessableEntity, m)
 }
 
 func (app *application) editConflictResponse(w http.ResponseWriter, r *http.Request) {
@@ -101,4 +105,26 @@ func (app *application) invalidAuthenticationTokenResponse(w http.ResponseWriter
 func (app *application) notPermittedResponse(w http.ResponseWriter, r *http.Request) {
 	message := "your user account doesn't have the necessary permissions to access this resource"
 	app.errorResponse(w, r, http.StatusForbidden, message)
+}
+
+func collectFieldErrors(err error, m map[string]string) {
+	if err == nil {
+		return
+	}
+	switch e := err.(type) {
+	case vd.ValidationErrors:
+		for _, ve := range e {
+			m[ve.Field] = ve.Message
+		}
+	case vd.ValidationError:
+		m[e.Field] = e.Message
+	default:
+		if uw, ok := err.(interface{ Unwrap() []error }); ok {
+			for _, ue := range uw.Unwrap() {
+				collectFieldErrors(ue, m)
+			}
+		} else if uw, ok := err.(interface{ Unwrap() error }); ok {
+			collectFieldErrors(uw.Unwrap(), m)
+		}
+	}
 }

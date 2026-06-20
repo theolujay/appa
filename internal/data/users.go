@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"errors"
-	"maps"
+	"fmt"
 	"time"
 
 	vd "github.com/theolujay/appa/internal/validator"
@@ -14,8 +14,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const (
+	pqUniqueViolation = "23505"
+	pqUsersEmailKey   = "users_email_key"
+)
+
 var (
 	ErrDuplicateEmail = errors.New("duplicate email")
+	// ErrInvalidCredentials = errors.New("invalid credentials")
 )
 
 var AnonymousUser = &User{}
@@ -55,7 +61,7 @@ type UserModeler interface {
 func (p *password) Set(plaintextPassword string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(plaintextPassword), 12)
 	if err != nil {
-		return err
+		return fmt.Errorf("password.set: %w", err)
 	}
 
 	p.plaintext = plaintextPassword
@@ -74,38 +80,51 @@ func (p *password) Matches(plaintextPassword string) (bool, error) {
 		case errors.Is(err, bcrypt.ErrMismatchedHashAndPassword):
 			return false, nil
 		default:
-			return false, err
+			return false, fmt.Errorf("password.matches: %w", err)
 		}
 	}
 
 	return true, nil
 }
 
-func ValidateEmail(email string) vd.Error {
+func ValidateEmail(email string) error {
 	v := vd.New()
 	v.Check(email != "", "email", "must be provided")
 	v.Check(vd.Matches(email, vd.EmailRX), "email", "must be a valid email address")
+	if v.Valid() {
+		return nil
+	}
 	return v.Errors
 }
 
-func ValidatePasswordPlaintext(password string) vd.Error {
+func ValidatePasswordPlaintext(password string) error {
 	v := vd.New()
 	v.Check(password != "", "password", "must be provided")
 	v.Check(len(password) >= 8, "password", "must be at least 8 bytes long")
 	v.Check(len(password) <= 72, "password", "must not be more than 72 bytes long")
 
+	if v.Valid() {
+		return nil
+	}
 	return v.Errors
 }
 
-func ValidateUser(user *User) vd.Error {
+func ValidateUser(user *User) error {
 	v := vd.New()
 	v.Check(user.Name != "", "name", "must be provided")
 	v.Check(len(user.Name) <= 500, "name", "must not be more than 500 bytes long")
 
-	maps.Copy(v.Errors, ValidateEmail(user.Email))
+	var ve vd.ValidationErrors
+	if err := ValidateEmail(user.Email); errors.As(err, &ve) {
+		v.Errors = append(v.Errors, ve...)
+	}
 
 	if user.Password.plaintext != "" {
-		maps.Copy(v.Errors, ValidatePasswordPlaintext(user.Password.plaintext))
+		var ve2 vd.ValidationErrors
+
+		if err := ValidatePasswordPlaintext(user.Password.plaintext); errors.As(err, &ve2) {
+			v.Errors = append(v.Errors, ve2...)
+		}
 	}
 
 	// If the password hash is ever nil, this will be due to a logic error in the
@@ -115,6 +134,9 @@ func ValidateUser(user *User) vd.Error {
 	// panic instead.
 	if user.Password.hash == nil {
 		panic("missing password hash for user")
+	}
+	if v.Valid() {
+		return nil
 	}
 	return v.Errors
 }
@@ -135,13 +157,14 @@ func (m UserModel) Insert(user *User) error {
 
 	err := m.DB.QueryRowContext(ctx, query, args...).Scan(&user.ID, &user.CreatedAt, &user.Version)
 	if err != nil {
-
-		if pqErr, ok := errors.AsType[*pq.Error](err); ok {
-			if pqErr.Code == "23505" && pqErr.Constraint == "users_email_key" {
+		var pqErr *pq.Error
+		switch {
+		case errors.As(err, &pqErr):
+			if pqErr.Code == pqUniqueViolation && pqErr.Constraint == pqUsersEmailKey {
 				return ErrDuplicateEmail
 			}
 		}
-		return err
+		return fmt.Errorf("users.insert: %w", err)
 	}
 
 	return nil
@@ -177,7 +200,7 @@ func (m UserModel) GetByEmail(email string) (*User, error) {
 		case errors.Is(err, sql.ErrNoRows):
 			return nil, ErrRecordNotFound
 		default:
-			return nil, err
+			return nil, fmt.Errorf("users.getByEmail: %w", err)
 		}
 	}
 
@@ -212,13 +235,13 @@ func (m UserModel) Update(user *User) error {
 		var pqErr *pq.Error
 		switch {
 		case errors.As(err, &pqErr):
-			if pqErr.Code == "23505" && pqErr.Constraint == "users_email_key" {
+			if pqErr.Code == pqUniqueViolation && pqErr.Constraint == pqUsersEmailKey {
 				return ErrDuplicateEmail
 			}
 		case errors.Is(err, sql.ErrNoRows):
 			return ErrEditConflict
 		default:
-			return err
+			return fmt.Errorf("users.update: %w", err)
 		}
 	}
 
@@ -260,7 +283,7 @@ func (m UserModel) GetForToken(tokenScope string, tokenPlaintext string) (*User,
 		case errors.Is(err, sql.ErrNoRows):
 			return nil, ErrRecordNotFound
 		default:
-			return nil, err
+			return nil, fmt.Errorf("users.getForToken: %w", err)
 		}
 	}
 	return &user, nil

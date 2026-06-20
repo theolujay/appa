@@ -77,14 +77,14 @@ func ApplyCmd() *cobra.Command {
 func setupFunc(args []string, force bool, tags, skipTags string) error {
 	name := args[0]
 	if !config.Exists(name) {
-		return fmt.Errorf("profile %q not found", name)
+		return fmt.Errorf("%w: %s", ErrProfileNotFound, name)
 	}
 	p, err := config.Load(name)
 	if err != nil {
 		return err
 	}
 	if p.SSHHost == "" {
-		return fmt.Errorf("no SSH target set for %q", name)
+		return fmt.Errorf("%w: %s", ErrNoSSHTarget, name)
 	}
 	if p.SetupDone {
 		output.Warn("Instance %q has already been set up; use 'appa apply %s' for changes", name, name)
@@ -132,7 +132,7 @@ func setupFunc(args []string, force bool, tags, skipTags string) error {
 	secPlaybook := ansible.PlaybookPath("security-hardening.yml")
 	playbook.Name = secPlaybook
 	if err := ansible.RunPlaybook(playbook); err != nil {
-		return fmt.Errorf("security hardening playbook failed: %w", err)
+		return err
 	}
 
 	output.Section("Deploying Appa Stack")
@@ -140,7 +140,7 @@ func setupFunc(args []string, force bool, tags, skipTags string) error {
 	stackPlaybook := ansible.PlaybookPath("deploy-stack.yml")
 	playbook.Name = stackPlaybook
 	if err := ansible.RunPlaybook(playbook); err != nil {
-		return fmt.Errorf("deploy stack playbook failed: %w", err)
+		return err
 	}
 
 	output.Section("Waiting for Appa API to become reachable")
@@ -170,14 +170,14 @@ func setupFunc(args []string, force bool, tags, skipTags string) error {
 func applyFunc(args []string, tags, skipTags string) error {
 	name := args[0]
 	if !config.Exists(name) {
-		return fmt.Errorf("profile %q not found", name)
+		return fmt.Errorf("%w: %s", ErrProfileNotFound, name)
 	}
 	p, err := config.Load(name)
 	if err != nil {
 		return err
 	}
 	if p.SSHHost == "" {
-		return fmt.Errorf("no SSH target set for %q", name)
+		return fmt.Errorf("%w: %s", ErrNoSSHTarget, name)
 	}
 
 	fmt.Printf("Checking SSH connectivity to %s...\n", ssh.Target(p.SSHUser, p.SSHHost, p.SSHPort))
@@ -217,13 +217,13 @@ func applyFunc(args []string, tags, skipTags string) error {
 	secPlaybook := ansible.PlaybookPath("security-hardening.yml")
 	playbook.Name = secPlaybook
 	if err := ansible.RunPlaybook(playbook); err != nil {
-		return fmt.Errorf("security hardening playbook failed: %w", err)
+		return err
 	}
 
 	stackPlaybook := ansible.PlaybookPath("deploy-stack.yml")
 	playbook.Name = stackPlaybook
 	if err := ansible.RunPlaybook(playbook); err != nil {
-		return fmt.Errorf("deploy stack playbook failed: %w", err)
+		return err
 	}
 
 	output.Success("Configuration applied to %q", name)
@@ -246,5 +246,5 @@ func pollHealth(url string, timeout time.Duration) error {
 		}
 		time.Sleep(2 * time.Second)
 	}
-	return fmt.Errorf("API not reachable within %v", timeout)
+	return fmt.Errorf("api not reachable within %v", timeout)
 }

@@ -5,14 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/google/uuid"
-	"github.com/theolujay/appa/internal/data"
-	vd "github.com/theolujay/appa/internal/validator"
+	da "github.com/theolujay/appa/internal/data"
 )
 
 func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.Request) {
@@ -28,7 +26,7 @@ func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	d := data.Deployment{
+	d := da.Deployment{
 		Source:  p.Source,
 		EnvVars: &p.EnvVars,
 	}
@@ -37,8 +35,8 @@ func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.R
 		d.UserID = &user.ID
 	}
 
-	if errs := data.ValidateDeployment(&d); len(errs) > 0 {
-		app.failedValidationResponse(w, r, errs)
+	if err = da.ValidateDeployment(&d); err != nil {
+		app.failedValidationResponse(w, r, err)
 		return
 	}
 
@@ -94,7 +92,7 @@ func (app *application) uploadProjectHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	d := data.Deployment{
+	d := da.Deployment{
 		Source:  "uploaded-project",
 		EnvVars: &envVars,
 	}
@@ -166,14 +164,20 @@ func (app *application) cancelDeploymentHandler(w http.ResponseWriter, r *http.R
 	id, err := app.readIDParam(r)
 
 	if err != nil || id < 1 {
-		app.notFoundResponse(w, r)
+		switch {
+		case errors.Is(err, ErrParamInvalid):
+			err = fmt.Errorf("%w: ID", err)
+			app.badRequestResponse(w, r, err)
+		default:
+			app.notFoundResponse(w, r)
+		}
 		return
 	}
 
 	d, err := app.models.Deployments.Get(id)
 	if err != nil {
 		switch {
-		case errors.Is(err, data.ErrRecordNotFound):
+		case errors.Is(err, da.ErrRecordNotFound):
 			app.notFoundResponse(w, r)
 		default:
 			app.serverErrorResponse(w, r, err)
@@ -198,21 +202,21 @@ func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Re
 
 	var q struct {
 		Status string
-		data.Filters
+		da.Filters
 	}
 
 	qs := r.URL.Query()
 
 	q.Status = app.readString(qs, "status", "")
 
-	errs := vd.Error{}
-	page, vdErr := app.readInt(qs, "page", 1)
-	if vdErr != nil {
-		maps.Copy(errs, vdErr)
+	var errs []error
+	page, err := app.readInt(qs, "page", 1)
+	if err != nil {
+		errs = append(errs, err)
 	}
-	pageSize, vdErr := app.readInt(qs, "page_size", 20)
-	if vdErr != nil {
-		maps.Copy(errs, vdErr)
+	pageSize, err := app.readInt(qs, "page_size", 20)
+	if err != nil {
+		errs = append(errs, err)
 	}
 
 	q.Filters.Page = page
@@ -220,13 +224,14 @@ func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Re
 	q.Filters.Sort = app.readString(qs, "sort", "id")
 	q.Filters.SortSafelist = []string{"id", "status"}
 
-	vdErr = data.ValidateFilters(q.Filters)
-	if vdErr != nil {
-		maps.Copy(errs, vdErr)
+	err = da.ValidateFilters(q.Filters)
+	if err != nil {
+		errs = append(errs, err)
 	}
 
 	if len(errs) > 0 {
-		app.failedValidationResponse(w, r, errs)
+		err = errors.Join(errs...)
+		app.failedValidationResponse(w, r, err)
 		return
 	}
 

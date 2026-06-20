@@ -3,6 +3,7 @@ package pipeline
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -128,12 +129,12 @@ func (r *Router) RemoveRoute(id int64) error {
 
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("create http delete request: %w", err)
 	}
 
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("delete route %d: %w", id, err)
 	}
 	defer resp.Body.Close()
 
@@ -159,6 +160,7 @@ func (r *Router) RestoreRoutes(dm data.DeploymentModeler) error {
 		return fmt.Errorf("failed to list %d deployments for sync: %w", metadata.TotalRecords, err)
 	}
 
+	var errs []error
 	fmt.Println("Syncing active deployment routes with Caddy...")
 	if len(deployments) < 1 {
 		fmt.Println("No active deployments found. Skipping...")
@@ -168,9 +170,13 @@ func (r *Router) RestoreRoutes(dm data.DeploymentModeler) error {
 				fmt.Printf("Restoring route for %d -> %s\n", d.ID, *d.Address)
 				err = r.AddRoute(d.ID, *d.Address)
 				if err != nil {
+					errs = append(errs, fmt.Errorf("%w: id %d: %w", ErrRoutingFailed, d.ID, err))
 					fmt.Printf("failed to restore route for %d: %v\n", d.ID, err)
 				}
 			}
+		}
+		if len(errs) > 0 {
+			return errors.Join(errs...)
 		}
 		fmt.Printf("Synced active deployments")
 	}
