@@ -13,7 +13,7 @@ import (
 	"github.com/theolujay/appa/internal/cli/ssh"
 )
 
-var GUI_EDITORS = map[string]string{
+var guiEditors = map[string]string{
 	// Needs --wait
 	"code":          "--wait",
 	"code-insiders": "--wait",
@@ -103,7 +103,7 @@ func instanceListCmd() *cobra.Command {
 func initFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
 	if config.Exists(name) {
-		return fmt.Errorf("%s: %w", name, ErrProfileExists)
+		return fmt.Errorf("%s: %w", name, errProfileExists)
 	}
 	p := config.DefaultProfile(name)
 	p.Name = name
@@ -120,7 +120,7 @@ func initFunc(_ *cobra.Command, args []string) error {
 func editFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
 	if !config.Exists(name) {
-		return fmt.Errorf("%s: %w", name, ErrProfileNotFound)
+		return fmt.Errorf("%s: %w", name, errProfileNotFound)
 	}
 
 	editor := os.Getenv("APPA_EDITOR")
@@ -135,7 +135,7 @@ func editFunc(_ *cobra.Command, args []string) error {
 	editorBin := parts[0]
 	editorArgs := parts[1:]
 
-	waitFlag, ok := GUI_EDITORS[editorBin]
+	waitFlag, ok := guiEditors[editorBin]
 	if ok && !slices.Contains(editorArgs, waitFlag) {
 		editorArgs = append(editorArgs, waitFlag)
 	}
@@ -192,7 +192,7 @@ func editFunc(_ *cobra.Command, args []string) error {
 func setHostFunc(args []string, identityFile string) error {
 	name, target := args[0], args[1]
 	if !config.Exists(name) {
-		return fmt.Errorf("%s: %w", name, ErrProfileNotFound)
+		return fmt.Errorf("%s: %w", name, errProfileNotFound)
 	}
 	user, host, port, err := parseTarget(target)
 	if err != nil {
@@ -260,7 +260,7 @@ func parseTarget(target string) (user, host string, port int, err error) {
 	port = 22
 	at := strings.LastIndex(target, "@")
 	if at < 1 {
-		return "", "", 0, ErrInvalidTarget
+		return "", "", 0, errInvalidTarget
 	}
 	user = target[:at]
 	rest := target[at+1:]
@@ -271,7 +271,7 @@ func parseTarget(target string) (user, host string, port int, err error) {
 		host = rest
 	}
 	if user == "" || host == "" {
-		return "", "", 0, ErrInvalidTarget
+		return "", "", 0, errInvalidTarget
 	}
 	return user, host, port, nil
 }

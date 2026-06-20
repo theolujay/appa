@@ -26,13 +26,13 @@ const (
 )
 
 const (
-	PENDING   string = "pending"
-	BUILDING  string = "building"
-	DEPLOYING string = "deploying"
-	RUNNING   string = "running"
-	CANCELED  string = "canceled"
-	STOPPED   string = "stopped"
-	FAILED    string = "failed"
+	pending   string = "pending"
+	building  string = "building"
+	deploying string = "deploying"
+	running   string = "running"
+	canceled  string = "canceled"
+	stopped   string = "stopped"
+	failed    string = "failed"
 )
 
 // Pipeline manages the deployment workflow for applications, including
@@ -102,7 +102,7 @@ func (p *Pipeline) recoverFunc(id int64, phase string) {
 // status change to the hub, and appends a human-readable log line via logLine.
 func (p *Pipeline) publishStatus(dc pipelineCtx) {
 	if errors.Is(dc.ctx.Err(), context.Canceled) {
-		dc.status = CANCELED
+		dc.status = canceled
 	}
 
 	dc.update.Status = &dc.status
@@ -114,24 +114,24 @@ func (p *Pipeline) publishStatus(dc pipelineCtx) {
 
 	var msg string
 	switch dc.status {
-	case PENDING:
+	case pending:
 		msg = "deployment queued"
-	case BUILDING:
+	case building:
 		msg = "build complete"
-	case DEPLOYING:
+	case deploying:
 		msg = "deployment started"
-	case FAILED:
+	case failed:
 		msg = fmt.Sprintf("%s failed: %v", dc.phase, dc.err)
-	case RUNNING:
+	case running:
 		msg = fmt.Sprintf("deployment live at %s", *dc.update.URL)
-	case CANCELED:
+	case canceled:
 		msg = "cancellation requested"
 		if dc.err != nil {
 			if errors.Is(dc.ctx.Err(), context.DeadlineExceeded) {
 				msg = "stopping container took too long"
 			}
 		}
-	case STOPPED:
+	case stopped:
 		msg = "deployment stopped by user"
 	}
 
@@ -153,7 +153,7 @@ func (p *Pipeline) Run(d *data.Deployment) {
 		ctx:    ctx,
 		ID:     d.ID,
 		phase:  phasePrepare,
-		status: PENDING,
+		status: pending,
 		update: &data.DeploymentUpdate{},
 	}
 
@@ -169,8 +169,8 @@ func (p *Pipeline) Run(d *data.Deployment) {
 
 	p.publishStatus(pc)
 
-	pc.status = BUILDING
-	buildDir, err := p.Prepare(ctx, d.ID, d.Source)
+	pc.status = building
+	buildDir, err := p.prepareBuild(ctx, d.ID, d.Source)
 	if err != nil {
 		pc.err = err
 		p.publishStatus(pc)
@@ -182,7 +182,7 @@ func (p *Pipeline) Run(d *data.Deployment) {
 	p.publishStatus(pc)
 
 	pc.phase = phaseBuild
-	imageTag, err := p.Build(ctx, d.ID, buildDir)
+	imageTag, err := p.buildImage(ctx, d.ID, buildDir)
 	if err != nil {
 		pc.err = err
 		p.publishStatus(pc)
@@ -193,8 +193,8 @@ func (p *Pipeline) Run(d *data.Deployment) {
 	p.publishStatus(pc)
 
 	pc.phase = phaseDeploy
-	pc.status = DEPLOYING
-	addr, err := p.StartContainer(ctx, d.ID)
+	pc.status = deploying
+	addr, err := p.startContainer(ctx, d.ID)
 	if err != nil {
 		pc.err = err
 		p.publishStatus(pc)
@@ -204,7 +204,7 @@ func (p *Pipeline) Run(d *data.Deployment) {
 	p.publishStatus(pc)
 
 	pc.phase = phaseRouting
-	err = p.router.AddRoute(d.ID, addr)
+	err = p.router.addRoute(d.ID, addr)
 	if err != nil {
 		pc.err = err
 		p.publishStatus(pc)
@@ -213,7 +213,7 @@ func (p *Pipeline) Run(d *data.Deployment) {
 
 	p.publishStatus(pc)
 
-	status := RUNNING
+	status := running
 	url := fmt.Sprintf("http://%d.localhost", d.ID)
 
 	pc.status = status
@@ -238,12 +238,12 @@ func (p *Pipeline) Cancel(ID int64) error {
 	defer cancel()
 	dc := pipelineCtx{
 		ctx:    ctx,
-		status: CANCELED,
+		status: canceled,
 		ID:     ID,
 		update: &data.DeploymentUpdate{},
 	}
 
-	p.StopContainer(&dc)
+	p.stopContainer(&dc)
 
 	p.publishStatus(dc)
 

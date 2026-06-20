@@ -77,14 +77,14 @@ func ApplyCmd() *cobra.Command {
 func setupFunc(args []string, force bool, tags, skipTags string) error {
 	name := args[0]
 	if !config.Exists(name) {
-		return fmt.Errorf("%w: %s", ErrProfileNotFound, name)
+		return fmt.Errorf("%w: %s", errProfileNotFound, name)
 	}
 	p, err := config.Load(name)
 	if err != nil {
 		return err
 	}
 	if p.SSHHost == "" {
-		return fmt.Errorf("%w: %s", ErrNoSSHTarget, name)
+		return fmt.Errorf("%w: %s", errNoSSHTarget, name)
 	}
 	if p.SetupDone {
 		output.Warn("Instance %q has already been set up; use 'appa apply %s' for changes", name, name)
@@ -170,14 +170,14 @@ func setupFunc(args []string, force bool, tags, skipTags string) error {
 func applyFunc(args []string, tags, skipTags string) error {
 	name := args[0]
 	if !config.Exists(name) {
-		return fmt.Errorf("%w: %s", ErrProfileNotFound, name)
+		return fmt.Errorf("%w: %s", errProfileNotFound, name)
 	}
 	p, err := config.Load(name)
 	if err != nil {
 		return err
 	}
 	if p.SSHHost == "" {
-		return fmt.Errorf("%w: %s", ErrNoSSHTarget, name)
+		return fmt.Errorf("%w: %s", errNoSSHTarget, name)
 	}
 
 	fmt.Printf("Checking SSH connectivity to %s...\n", ssh.Target(p.SSHUser, p.SSHHost, p.SSHPort))

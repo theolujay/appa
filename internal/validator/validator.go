@@ -5,7 +5,6 @@
 package validator
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -54,16 +53,16 @@ func (es ValidationErrors) Unwrap() []error {
 	return errs
 }
 
-func (v *Validator) Err() error {
-	if len(v.Errors) == 0 {
-		return nil
-	}
-	var errs []error
-	for _, e := range v.Errors {
-		errs = append(errs, e)
-	}
-	return errors.Join(errs...)
-}
+// func (v *Validator) err() error {
+// 	if len(v.Errors) == 0 {
+// 		return nil
+// 	}
+// 	var errs []error
+// 	for _, e := range v.Errors {
+// 		errs = append(errs, e)
+// 	}
+// 	return errors.Join(errs...)
+// }
 
 func New() *Validator {
 	return &Validator{ValidationErrors{}}
@@ -73,7 +72,7 @@ func (v *Validator) Valid() bool {
 	return len(v.Errors) == 0
 }
 
-func (v *Validator) AddError(field, message string) {
+func (v *Validator) addError(field, message string) {
 	e := ValidationError{
 		Field:   field,
 		Message: message,
@@ -83,7 +82,7 @@ func (v *Validator) AddError(field, message string) {
 
 func (v *Validator) Check(ok bool, field, message string) {
 	if !ok {
-		v.AddError(field, message)
+		v.addError(field, message)
 	}
 }
 
@@ -95,10 +94,10 @@ func Matches(value string, rx *regexp.Regexp) bool {
 	return rx.MatchString(value)
 }
 
-func Unique[T comparable](values []T) bool {
-	uniqueValues := make(map[T]bool, len(values))
-	for _, value := range values {
-		uniqueValues[value] = true
-	}
-	return len(values) == len(uniqueValues)
-}
+// func unique[T comparable](values []T) bool {
+// 	uniqueValues := make(map[T]bool, len(values))
+// 	for _, value := range values {
+// 		uniqueValues[value] = true
+// 	}
+// 	return len(values) == len(uniqueValues)
+// }

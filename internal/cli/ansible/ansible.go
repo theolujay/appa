@@ -80,10 +80,10 @@ func GenerateInventory(p config.Profile, dest string) error {
 	})
 }
 
-// AnsibleDir returns the base path for Ansible
+// ansibleDir returns the base path for Ansible
 // configuration files. Files are embedded in the
 // binary and extracted to ~/.appa/ansible/ on first use.
-func AnsibleDir() string {
+func ansibleDir() string {
 	return ansibleExtractedDir()
 }
 
@@ -94,14 +94,14 @@ func ensureDeps() error {
 	if err := ensureExtracted(); err != nil {
 		return fmt.Errorf("extract ansible files: %w", err)
 	}
-	reqPath := filepath.Join(AnsibleDir(), "requirements.yml")
+	reqPath := filepath.Join(ansibleDir(), "requirements.yml")
 	if _, err := os.Stat(reqPath); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	cmd := exec.Command(
 		"ansible-galaxy", "role", "install", "-r", "requirements.yml",
 	)
-	cmd.Dir = AnsibleDir()
+	cmd.Dir = ansibleDir()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -131,7 +131,7 @@ func RunPlaybook(p Playbook) error {
 		args = append(args, "-e", toJSONString(p.ExtraVars))
 	}
 	cmd := exec.Command("ansible-playbook", args...)
-	cmd.Dir = AnsibleDir()
+	cmd.Dir = ansibleDir()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -155,5 +155,5 @@ func toJSONString(v map[string]any) string {
 // PlaybookPath returns the full filesystem path to a
 // specific playbook file within the Ansible directory.
 func PlaybookPath(name string) string {
-	return filepath.Join(AnsibleDir(), "playbooks", name)
+	return filepath.Join(ansibleDir(), "playbooks", name)
 }

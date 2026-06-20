@@ -62,16 +62,16 @@ type caddyUpstream struct {
 	Dial string `json:"dial,omitempty"`
 }
 
-// AddRoute creates a reverse-proxy route in Caddy for the deployment identified
+// addRoute creates a reverse-proxy route in Caddy for the deployment identified
 // by `id`, proxying traffic to `address` (host:port). If a route for the same
 // deployment already exists it will be removed first.
 //
 // The function returns an error if the Caddy admin API cannot be reached or
 // if Caddy rejects the configuration.
-func (r *Router) AddRoute(id int64, address string) error {
+func (r *Router) addRoute(id int64, address string) error {
 	routeID := fmt.Sprintf("deployment-%d", id)
 
-	_ = r.RemoveRoute(id)
+	_ = r.removeRoute(id)
 
 	route := caddyRoute{
 		ID: routeID,
@@ -120,10 +120,10 @@ func (r *Router) AddRoute(id int64, address string) error {
 	return nil
 }
 
-// RemoveRoute deletes the route associated with the given deployment `id` from
+// removeRoute deletes the route associated with the given deployment `id` from
 // the Caddy instance. It performs an HTTP DELETE against the Caddy admin API
 // and returns any error encountered while creating or sending the request.
-func (r *Router) RemoveRoute(id int64) error {
+func (r *Router) removeRoute(id int64) error {
 	routeID := fmt.Sprintf("deployment-%d", id)
 	url := fmt.Sprintf("%s/id/%s", r.baseURL, routeID)
 
@@ -155,7 +155,7 @@ func (r *Router) RestoreRoutes(dm data.DeploymentModeler) error {
 	}
 	// A user ID of 0 is treated as a wildcard
 	// and fetches deployments for all users.
-	deployments, metadata, err := dm.GetAllForUser(0, RUNNING, filters)
+	deployments, metadata, err := dm.GetAllForUser(0, running, filters)
 	if err != nil {
 		return fmt.Errorf("failed to list %d deployments for sync: %w", metadata.TotalRecords, err)
 	}
@@ -166,11 +166,11 @@ func (r *Router) RestoreRoutes(dm data.DeploymentModeler) error {
 		fmt.Println("No active deployments found. Skipping...")
 	} else {
 		for _, d := range deployments {
-			if d.Status == RUNNING && d.Address != nil {
+			if d.Status == running && d.Address != nil {
 				fmt.Printf("Restoring route for %d -> %s\n", d.ID, *d.Address)
-				err = r.AddRoute(d.ID, *d.Address)
+				err = r.addRoute(d.ID, *d.Address)
 				if err != nil {
-					errs = append(errs, fmt.Errorf("%w: id %d: %w", ErrRoutingFailed, d.ID, err))
+					errs = append(errs, fmt.Errorf("%w: id %d: %w", errRoutingFailed, d.ID, err))
 					fmt.Printf("failed to restore route for %d: %v\n", d.ID, err)
 				}
 			}

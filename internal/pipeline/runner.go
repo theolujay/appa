@@ -18,13 +18,13 @@ import (
 	"github.com/theolujay/appa/internal/data"
 )
 
-// StartContainer starts a container from the given image tag and streams its logs
+// startContainer starts a container from the given image tag and streams its logs
 // to the hub and the database. It returns the host:port address of the
 // running container so the router can configure Caddy to point at it.
-func (p *Pipeline) StartContainer(ctx context.Context, id int64) (string, error) {
+func (p *Pipeline) startContainer(ctx context.Context, id int64) (string, error) {
 	d, err := p.deployment.Get(id)
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrDeployFailed, err)
+		return "", fmt.Errorf("%w: %w", errDeployFailed, err)
 	}
 
 	p.mu.Lock()
@@ -32,12 +32,12 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64) (string, error)
 
 	hPort, err := getPort()
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrDeployFailed, err)
+		return "", fmt.Errorf("%w: %w", errDeployFailed, err)
 	}
 
 	res, err := p.dockerClient.ImageInspect(ctx, *d.ImageTag)
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrDeployFailed, err)
+		return "", fmt.Errorf("%w: %w", errDeployFailed, err)
 	}
 
 	cPort := "3000/tcp"
@@ -92,12 +92,12 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64) (string, error)
 	})
 
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrDeployFailed, err)
+		return "", fmt.Errorf("%w: %w", errDeployFailed, err)
 	}
 
 	_, err = p.dockerClient.ContainerStart(ctx, createResp.ID, client.ContainerStartOptions{})
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrDeployFailed, err)
+		return "", fmt.Errorf("%w: %w", errDeployFailed, err)
 	}
 
 	addr := net.JoinHostPort(cName, strings.Split(cPort, "/")[0])
@@ -114,7 +114,7 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64) (string, error)
 	}
 
 	if !healthy {
-		return "", fmt.Errorf("%w: container did not respond on port %d: %w", ErrDeployFailed, hPort, ErrContainerNotReady)
+		return "", fmt.Errorf("%w: container did not respond on port %d: %w", errDeployFailed, hPort, errContainerNotReady)
 	}
 
 	go func() {
@@ -155,15 +155,15 @@ func (p *Pipeline) StartContainer(ctx context.Context, id int64) (string, error)
 	return addr, nil
 }
 
-// StopContainer stops the Docker container, removes the associated Caddy route, and updates the deployment status to STOPPED.
-func (p *Pipeline) StopContainer(dc *pipelineCtx) {
+// stopContainer stops the Docker container, removes the associated Caddy route, and updates the deployment status to STOPPED.
+func (p *Pipeline) stopContainer(dc *pipelineCtx) {
 	_, err := p.deployment.Get(dc.ID)
 	if err != nil {
 		switch {
 		case errors.Is(err, data.ErrRecordNotFound):
 			dc.err = fmt.Errorf("deployment not found")
 		default:
-			dc.err = fmt.Errorf("%w: %w", ErrDeployFailed, err)
+			dc.err = fmt.Errorf("%w: %w", errDeployFailed, err)
 		}
 		return
 	}
@@ -179,14 +179,14 @@ func (p *Pipeline) StopContainer(dc *pipelineCtx) {
 	)
 	if err != nil {
 		if !cerrdefs.IsNotFound(err) {
-			dc.err = fmt.Errorf("%w: %w", ErrContainerFailed, err)
+			dc.err = fmt.Errorf("%w: %w", errContainerFailed, err)
 			return
 		}
 	}
 
-	err = p.router.RemoveRoute(dc.ID)
+	err = p.router.removeRoute(dc.ID)
 	if err != nil {
-		dc.err = fmt.Errorf("%w: %w", ErrRoutingFailed, err)
+		dc.err = fmt.Errorf("%w: %w", errRoutingFailed, err)
 	}
 }
 

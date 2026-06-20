@@ -47,14 +47,14 @@ func configDir() string {
 	return filepath.Join(home, ".appa")
 }
 
-// ProfileDir returns the directory path for a specific instance profile.
-func ProfileDir(name string) string {
+// profileDir returns the directory path for a specific instance profile.
+func profileDir(name string) string {
 	return filepath.Join(configDir(), "instances", name)
 }
 
 // ProfilePath returns the full path to the config file for a specific profile.
 func ProfilePath(name string) string {
-	return filepath.Join(ProfileDir(name), "config.toml")
+	return filepath.Join(profileDir(name), "config.toml")
 }
 
 // Load reads a profile from disk by its name.
@@ -71,7 +71,7 @@ func Load(name string) (Profile, error) {
 // Save writes a profile to disk. It creates the necessary directories
 // with restricted permissions (0700) and saves the TOML file (0600).
 func Save(p Profile) error {
-	dir := ProfileDir(p.Name)
+	dir := profileDir(p.Name)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create profile dir: %w", err)
 	}

@@ -73,14 +73,14 @@ func UpgradeCmd() *cobra.Command {
 func statusFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
 	if !config.Exists(name) {
-		return fmt.Errorf("%s: %w", name, ErrProfileNotFound)
+		return fmt.Errorf("%s: %w", name, errProfileNotFound)
 	}
 	p, err := config.Load(name)
 	if err != nil {
 		return fmt.Errorf("load profile %q: %w", name, err)
 	}
 	if p.SSHHost == "" {
-		return fmt.Errorf("%s: %w", name, ErrNoSSHTarget)
+		return fmt.Errorf("%s: %w", name, errNoSSHTarget)
 	}
 
 	output.Section("Status for %q", name)
@@ -158,14 +158,14 @@ func statusFunc(_ *cobra.Command, args []string) error {
 func logsFunc(args []string, service string, tail int) error {
 	name := args[0]
 	if !config.Exists(name) {
-		return fmt.Errorf("%s: %w", name, ErrProfileNotFound)
+		return fmt.Errorf("%s: %w", name, errProfileNotFound)
 	}
 	p, err := config.Load(name)
 	if err != nil {
 		return fmt.Errorf("load profile %q: %w", name, err)
 	}
 	if p.SSHHost == "" {
-		return fmt.Errorf("%s: %w", name, ErrNoSSHTarget)
+		return fmt.Errorf("%s: %w", name, errNoSSHTarget)
 	}
 	clientConfig := ssh.Client{
 		User:         p.SSHUser,
@@ -192,14 +192,14 @@ func logsFunc(args []string, service string, tail int) error {
 func restartFunc(args []string, service string) error {
 	name := args[0]
 	if !config.Exists(name) {
-		return fmt.Errorf("%s: %w", name, ErrProfileNotFound)
+		return fmt.Errorf("%s: %w", name, errProfileNotFound)
 	}
 	p, err := config.Load(name)
 	if err != nil {
 		return fmt.Errorf("load profile %q: %w", name, err)
 	}
 	if p.SSHHost == "" {
-		return fmt.Errorf("%s: %w", name, ErrNoSSHTarget)
+		return fmt.Errorf("%s: %w", name, errNoSSHTarget)
 	}
 	clientConfig := ssh.Client{
 		User:         p.SSHUser,
@@ -227,14 +227,14 @@ func restartFunc(args []string, service string) error {
 func upgradeFunc(args []string, version string) error {
 	name := args[0]
 	if !config.Exists(name) {
-		return fmt.Errorf("%s: %w", name, ErrProfileNotFound)
+		return fmt.Errorf("%s: %w", name, errProfileNotFound)
 	}
 	p, err := config.Load(name)
 	if err != nil {
 		return fmt.Errorf("load profile %q: %w", name, err)
 	}
 	if p.SSHHost == "" {
-		return fmt.Errorf("%s: %w", name, ErrNoSSHTarget)
+		return fmt.Errorf("%s: %w", name, errNoSSHTarget)
 	}
 	clientConfig := ssh.Client{
 		User:         p.SSHUser,
