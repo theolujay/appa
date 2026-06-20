@@ -1,0 +1,13 @@
+Appa
+Copyright 2026 Joseph Ezekiel
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full text.
+
+This product relies on third-party open-source Go packages. 
+Please refer to the `go.mod` file for a complete list of dependencies. 
+
+This product also interacts with the following external system tools:
+- Ansible (GPLv3)
+- Caddy Server (Apache 2.0)
+- Railpack (MIT)
