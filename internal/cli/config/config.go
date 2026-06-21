@@ -15,13 +15,13 @@ func ValidateName(s string) bool {
 	return r.MatchString(s)
 }
 
-// Profile represents the configuration for an Appa instance.
-type Profile struct {
+type InstanceConfig struct {
 	Name            string `toml:"name"`
 	SSHHost         string `toml:"ssh_host"`
 	SSHUser         string `toml:"ssh_user"`
 	SSHPort         int    `toml:"ssh_port"`
 	SSHIdentityFile string `toml:"ssh_identity_file,omitempty"`
+	SSHSkipVerify   bool   `toml:"skip_ssh_verify,omitempty"`
 	Domain          string `toml:"domain"`
 	CloudflareToken string `toml:"cloudflare_token"`
 	SMTPHost        string `toml:"smtp_host"`
@@ -32,9 +32,21 @@ type Profile struct {
 	APIURL          string `toml:"api_url,omitempty"`
 }
 
-// DefaultProfile returns a Profile with standard default values.
-func DefaultProfile(name string) Profile {
-	return Profile{
+type ProjectConfig struct {
+	Name   string `toml:"name"`
+	Source string `toml:"source"`
+	Target string `toml:"target,omitempty"`
+}
+
+type Kind string
+
+const (
+	Instance Kind = "instance"
+	Project  Kind = "project"
+)
+
+func DefaultInstance(name string) InstanceConfig {
+	return InstanceConfig{
 		Name:     name,
 		SSHUser:  "root",
 		SSHPort:  22,
@@ -42,10 +54,19 @@ func DefaultProfile(name string) Profile {
 	}
 }
 
-// configDir returns the base directory for Appa configuration.
-// It checks the APPA_CONFIG_DIR environment variable, otherwise
-// defaults to .appa in the user's home directory.
-func configDir() string {
+func DefaultProject(name, source string) ProjectConfig {
+	return ProjectConfig{
+		Name:   name,
+		Source: source,
+	}
+}
+
+var kindDirs = map[Kind]string{
+	Instance: "instances",
+	Project:  "projects",
+}
+
+func baseDir() string {
 	if d := os.Getenv("APPA_CONFIG_DIR"); d != "" {
 		return d
 	}
@@ -53,75 +74,111 @@ func configDir() string {
 	return filepath.Join(home, ".appa")
 }
 
-// profileDir returns the directory path for a specific instance profile.
-func profileDir(name string) string {
-	return filepath.Join(configDir(), "instances", name)
+func dirFor(k Kind, name string) string {
+	return filepath.Join(baseDir(), kindDirs[k], name)
 }
 
-// ProfilePath returns the full path to the config file for a specific profile.
-func ProfilePath(name string) string {
-	return filepath.Join(profileDir(name), "config.toml")
+func PathFor(k Kind, name string) string {
+	return filepath.Join(dirFor(k, name), "config.toml")
 }
 
-// Load reads a profile from disk by its name.
-func Load(name string) (Profile, error) {
-	var p Profile
-	path := ProfilePath(name)
-	_, err := toml.DecodeFile(path, &p)
-	if err != nil {
-		return p, err
-	}
-	return p, nil
+func load[T InstanceConfig | ProjectConfig](path string) (T, error) {
+	var cfg T
+	_, err := toml.DecodeFile(path, &cfg)
+	return cfg, fmt.Errorf("open config file: %w", err)
 }
 
-// Save writes a profile to disk. It creates the necessary directories
-// with restricted permissions (0700) and saves the TOML file (0600).
-func Save(p Profile) error {
-	dir := profileDir(p.Name)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("create profile dir: %w", err)
-	}
-	path := ProfilePath(p.Name)
+func LoadInstance(name string) (InstanceConfig, error) {
+	return load[InstanceConfig](PathFor(Instance, name))
+}
+
+func LoadProject(name string) (ProjectConfig, error) {
+	return load[ProjectConfig](PathFor(Project, name))
+}
+
+func writeTOML(path string, v any) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
-		return fmt.Errorf("open profile file: %w", err)
+		return err
 	}
 	defer f.Close()
-	return toml.NewEncoder(f).Encode(p)
+	return toml.NewEncoder(f).Encode(v)
 }
 
-// List returns a list of all existing instance profiles by scanning the instances directory.
-func List() ([]Profile, error) {
-	instancesDir := filepath.Join(configDir(), "instances")
-	entries, err := os.ReadDir(instancesDir)
+func SaveInstance(cfg InstanceConfig) error {
+	dir := dirFor(Instance, cfg.Name)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("create instance dir: %w", err)
+	}
+	return writeTOML(PathFor(Instance, cfg.Name), cfg)
+}
+
+func SaveProject(cfg ProjectConfig) error {
+	dir := dirFor(Project, cfg.Name)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("create project dir: %w", err)
+	}
+	return writeTOML(PathFor(Project, cfg.Name), cfg)
+}
+
+func ListInstances() ([]InstanceConfig, error) {
+	d := filepath.Join(baseDir(), kindDirs[Instance])
+	entries, err := os.ReadDir(d)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("list profiles: %w", err)
+		return nil, fmt.Errorf("list instances: %w", err)
 	}
-	var profiles []Profile
+	var cfgs []InstanceConfig
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
-		p, err := Load(e.Name())
+		cfg, err := LoadInstance(e.Name())
 		if err != nil {
 			continue
 		}
-		profiles = append(profiles, p)
+		cfgs = append(cfgs, cfg)
 	}
-	return profiles, nil
+	return cfgs, nil
 }
 
-// Exists checks if a profile with the given name exists on disk.
-func Exists(name string) error {
-	if !ValidateName(name) {
-		return fmt.Errorf("invalid profile name")
-	}
-	_, err := os.Stat(ProfilePath(name))
+func ListProjects() ([]ProjectConfig, error) {
+	d := filepath.Join(baseDir(), kindDirs[Project])
+	entries, err := os.ReadDir(d)
 	if err != nil {
-		return fmt.Errorf("profile not found")
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list projects: %w", err)
 	}
-	return nil
+	var cfgs []ProjectConfig
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		cfg, err := LoadProject(e.Name())
+		if err != nil {
+			continue
+		}
+		cfgs = append(cfgs, cfg)
+	}
+	return cfgs, nil
+}
+
+func InstanceExists(name string) bool {
+	if !ValidateName(name) {
+		return false
+	}
+	_, err := os.Stat(PathFor(Instance, name))
+	return err == nil
+}
+
+func ProjectExists(name string) bool {
+	if !ValidateName(name) {
+		return false
+	}
+	_, err := os.Stat(PathFor(Project, name))
+	return err == nil
 }

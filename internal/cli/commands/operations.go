@@ -72,12 +72,12 @@ func UpgradeCmd() *cobra.Command {
 // SSH connectivity, API health, Docker Compose services, and disk usage.
 func statusFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
-	if err := config.Exists(name); err != nil {
-		return fmt.Errorf("%w: %s", err, name)
+	if !config.InstanceExists(name) {
+		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
-	p, err := config.Load(name)
+	p, err := config.LoadInstance(name)
 	if err != nil {
-		return fmt.Errorf("load profile %q: %w", name, err)
+		return fmt.Errorf("load config %q: %w", name, err)
 	}
 	if p.SSHHost == "" {
 		return fmt.Errorf("%s: %w", name, errNoSSHTarget)
@@ -85,22 +85,23 @@ func statusFunc(_ *cobra.Command, args []string) error {
 
 	output.Section("Status for %q", name)
 
-	clientConfig := ssh.Client{
+	sClient := ssh.Client{
 		User:         p.SSHUser,
 		Host:         p.SSHHost,
 		Port:         p.SSHPort,
 		IdentityFile: p.SSHIdentityFile,
+		SkipVerify:   p.SSHSkipVerify,
 	}
 
 	output.Check("SSH target", p.SSHHost != "")
-	sshOK := ssh.TestConnect(p.SSHUser, p.SSHHost, p.SSHPort, p.SSHIdentityFile) == nil
+	sshOK := sClient.TestConnect() == nil
 	output.Check("SSH reachable", sshOK)
 
 	switch {
 	case p.SetupDone && sshOK:
 		fmt.Print("  Checking API health...\n")
-		client := &http.Client{Timeout: 5 * time.Second}
-		resp, err := client.Get(p.APIURL)
+		hClient := &http.Client{Timeout: 5 * time.Second}
+		resp, err := hClient.Get(p.APIURL)
 		if err != nil {
 			return fmt.Errorf("unable to reach API: %w", err)
 		}
@@ -120,7 +121,7 @@ func statusFunc(_ *cobra.Command, args []string) error {
 		checkCmd := `
 			docker compose -f /opt/appa/compose.yml ps --format '{{.Name}} {{.Status}}' 2>/dev/null || echo 'compose not found'
 		`
-		out, err := ssh.RunCommand(clientConfig, checkCmd)
+		out, err := ssh.RunCommand(sClient, checkCmd)
 		if err != nil {
 			if errors.Is(err, ssh.ErrSSHConnectionFailed) {
 				return fmt.Errorf("cannot execute command: %w", err)
@@ -136,7 +137,7 @@ func statusFunc(_ *cobra.Command, args []string) error {
 		}
 
 		fmt.Print("  Checking disk usage...\n")
-		diskOut, err := ssh.RunCommand(clientConfig,
+		diskOut, err := ssh.RunCommand(sClient,
 			"df -h / | awk 'NR==2 {print \"  Used: \" $3 \" / \" $2 \" (\" $5 \")\"}'",
 		)
 		if err != nil {
@@ -157,12 +158,12 @@ func statusFunc(_ *cobra.Command, args []string) error {
 // with optional service filtering and line count limits.
 func logsFunc(args []string, service string, tail int) error {
 	name := args[0]
-	if err := config.Exists(name); err != nil {
-		return fmt.Errorf("%w: %s", err, name)
+	if !config.InstanceExists(name) {
+		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
-	p, err := config.Load(name)
+	p, err := config.LoadInstance(name)
 	if err != nil {
-		return fmt.Errorf("load profile %q: %w", name, err)
+		return fmt.Errorf("load config %q: %w", name, err)
 	}
 	if p.SSHHost == "" {
 		return fmt.Errorf("%s: %w", name, errNoSSHTarget)
@@ -172,6 +173,7 @@ func logsFunc(args []string, service string, tail int) error {
 		Host:         p.SSHHost,
 		Port:         p.SSHPort,
 		IdentityFile: p.SSHIdentityFile,
+		SkipVerify:   p.SSHSkipVerify,
 	}
 	dockerCmd := "docker compose -f /opt/appa/compose.yml logs -f"
 	if tail > 0 {
@@ -191,12 +193,12 @@ func logsFunc(args []string, service string, tail int) error {
 // optionally limiting to a specific service.
 func restartFunc(args []string, service string) error {
 	name := args[0]
-	if err := config.Exists(name); err != nil {
-		return fmt.Errorf("%w: %s", err, name)
+	if !config.InstanceExists(name) {
+		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
-	p, err := config.Load(name)
+	p, err := config.LoadInstance(name)
 	if err != nil {
-		return fmt.Errorf("load profile %q: %w", name, err)
+		return fmt.Errorf("load config %q: %w", name, err)
 	}
 	if p.SSHHost == "" {
 		return fmt.Errorf("%s: %w", name, errNoSSHTarget)
@@ -206,6 +208,7 @@ func restartFunc(args []string, service string) error {
 		Host:         p.SSHHost,
 		Port:         p.SSHPort,
 		IdentityFile: p.SSHIdentityFile,
+		SkipVerify:   p.SSHSkipVerify,
 	}
 	dockerCmd := "docker compose -f /opt/appa/compose.yml restart"
 	if service != "" {
@@ -226,12 +229,12 @@ func restartFunc(args []string, service string) error {
 // version tag. It waits for the API to become healthy after upgrade.
 func upgradeFunc(args []string, version string) error {
 	name := args[0]
-	if err := config.Exists(name); err != nil {
-		return fmt.Errorf("%w: %s", err, name)
+	if !config.InstanceExists(name) {
+		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
-	p, err := config.Load(name)
+	p, err := config.LoadInstance(name)
 	if err != nil {
-		return fmt.Errorf("load profile %q: %w", name, err)
+		return fmt.Errorf("load config %q: %w", name, err)
 	}
 	if p.SSHHost == "" {
 		return fmt.Errorf("%s: %w", name, errNoSSHTarget)
@@ -241,6 +244,7 @@ func upgradeFunc(args []string, version string) error {
 		Host:         p.SSHHost,
 		Port:         p.SSHPort,
 		IdentityFile: p.SSHIdentityFile,
+		SkipVerify:   p.SSHSkipVerify,
 	}
 
 	output.Section("Upgrading %q", name)

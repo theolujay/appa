@@ -16,10 +16,10 @@ func NewApp() *cobra.Command {
 			checks, security hardening, and remote lifecycle management of your server.
 
 			Typical setup workflow:
-			1. Initialize a new local profile: appa instance init <name>
-			2. Configure connection target:    appa instance set-host <name> root@<ip>
-			3. Validate remote environment:    appa preflight <name>
-			4. Hardened stack deployment:      appa setup <name>
+			1. Create a new instance:  	appa instance init <name>
+			2. Configure connection target:	appa instance set-host <name> root@<ip>
+			3. Validate remote environment:	appa preflight <name>
+			4. Hardened stack deployment:  	appa setup <name>
   		`,
 		Version: vcs.Version(),
 	}

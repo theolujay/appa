@@ -36,7 +36,7 @@ const inventoryTemplate = `
 {{.Host}}
 ansible_user={{.User}}
 ansible_port={{.Port}}
-ansible_ssh_common_args='-o StrictHostKeyChecking=accept-new'
+ansible_ssh_common_args='{{.SSHCommonArgs}}'
 
 [appa:vars]
 ansible_python_interpreter=/usr/bin/python3
@@ -45,9 +45,10 @@ ansible_python_interpreter=/usr/bin/python3
 // inventoryData holds the template variables for
 // generating an Ansible inventory file.
 type inventoryData struct {
-	Host string
-	User string
-	Port int
+	Host          string
+	User          string
+	Port          int
+	SSHCommonArgs string
 }
 
 // Playbook represents the configuration for an
@@ -61,9 +62,9 @@ type Playbook struct {
 }
 
 // GenerateInventory creates an Ansible inventory file on
-// disk using the provided profile configuration. It sets
+// disk using the provided instance configuration. It sets
 // up the [appa] group with the host's SSH connection details.
-func GenerateInventory(p config.Profile, dest string) error {
+func GenerateInventory(p config.InstanceConfig, dest string, skipVerify bool) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
 		return fmt.Errorf("create inventory dir: %w", err)
 	}
@@ -76,10 +77,17 @@ func GenerateInventory(p config.Profile, dest string) error {
 		return fmt.Errorf("create inventory file: %w", err)
 	}
 	defer f.Close()
+
+	sshArgs := "-o StrictHostKeyChecking=accept-new"
+	if skipVerify {
+		sshArgs = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+	}
+
 	return tmpl.Execute(f, inventoryData{
-		Host: p.SSHHost,
-		User: p.SSHUser,
-		Port: p.SSHPort,
+		Host:          p.SSHHost,
+		User:          p.SSHUser,
+		Port:          p.SSHPort,
+		SSHCommonArgs: sshArgs,
 	})
 }
 

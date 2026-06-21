@@ -36,12 +36,12 @@ var guiEditors = map[string]string{
 	"gvim": "-f",
 }
 
-// InstanceCmd returns the root command for managing Appa instance profiles.
-// It provides subcommands for initializing, editing, setting hosts, and listing profiles.
+// InstanceCmd returns the root command for managing Appa instances.
+// It provides subcommands for initializing, editing, setting hosts, and listing configs.
 func InstanceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "instance",
-		Short: "Manage Appa instance profiles",
+		Short: "Manage Appa instances",
 	}
 
 	cmd.AddCommand(instanceInitCmd())
@@ -55,37 +55,41 @@ func InstanceCmd() *cobra.Command {
 func instanceInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init <name>",
-		Short: "Create a new instance profile",
+		Short: "Create a new instance",
 		Args:  cobra.ExactArgs(1),
-		RunE:  initFunc,
+		RunE:  instanceInitFunc,
 	}
 }
 
 func instanceEditCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "edit <name>",
-		Short: "Edit instance profile in $EDITOR",
-		Long: `Opens the instance profile in the system editor for direct TOML editing.
+		Short: "Edit instance config in $EDITOR",
+		Long: `Opens the instance config in the system editor for direct TOML editing.
 
 The editor is chosen from $APPA_EDITOR, $EDITOR, or defaults to "vi".
 After saving, the file is validated. If invalid, you can re-edit or abort.`,
 		Args: cobra.ExactArgs(1),
-		RunE: editFunc,
+		RunE: instanceEditFunc,
 	}
 }
 
 func instanceSetHostCmd() *cobra.Command {
 	var identityFile string
+	var skipVerify bool
 	cmd := &cobra.Command{
 		Use:   "set-host <name> <target>",
-		Short: "Set SSH target for an instance profile",
+		Short: "Set SSH target for an instance config",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return setHostFunc(args, identityFile)
+			return instanceSetHostFunc(args, identityFile, skipVerify)
 		},
 	}
 	cmd.Flags().StringVarP(
 		&identityFile, "identity-file", "i", "", "Path to SSH private key",
+	)
+	cmd.Flags().BoolVar(
+		&skipVerify, "skip-verify", false, "Skip SSH host key verification",
 	)
 	return cmd
 }
@@ -93,35 +97,35 @@ func instanceSetHostCmd() *cobra.Command {
 func instanceListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List all instance profiles",
+		Short: "List all instances",
 		Args:  cobra.NoArgs,
-		RunE:  listFunc,
+		RunE:  instanceListFunc,
 	}
 }
 
-// initFunc handles the creation of a new instance profile with validation.
-func initFunc(_ *cobra.Command, args []string) error {
+// instanceInitFunc handles the creation of a new instance with validation.
+func instanceInitFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
-	if err := config.Exists(name); err != nil {
-		return fmt.Errorf("%w: %s", err, name)
+	if !config.InstanceExists(name) {
+		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
 
-	p := config.DefaultProfile(name)
-	p.Name = name
-	if err := config.Save(p); err != nil {
-		return fmt.Errorf("save profile: %w", err)
+	cfg := config.DefaultInstance(name)
+	cfg.Name = name
+	if err := config.SaveInstance(cfg); err != nil {
+		return fmt.Errorf("save config: %w", err)
 	}
-	output.Success("Instance profile %q created", name)
+	output.Success("Instance %q initialized", name)
 	output.Success("  Next: appa instance set-host %s user@host", name)
 	return nil
 }
 
-// editFunc handles opening an instance profile in the system editor for editing.
+// instanceEditFunc handles opening an instance config in the system editor for editing.
 // It supports validation and re-editing on invalid configuration.
-func editFunc(_ *cobra.Command, args []string) error {
+func instanceEditFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
-	if err := config.Exists(name); err != nil {
-		return fmt.Errorf("%w: %s", err, name)
+	if !config.InstanceExists(name) {
+		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
 
 	editor := os.Getenv("APPA_EDITOR")
@@ -146,17 +150,12 @@ func editFunc(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("editor %q not found on PATH", editor)
 	}
 
-	path := config.ProfilePath(name)
+	path := config.PathFor(config.Instance, name)
 	output.Section("Waiting for your editor to close %q config file...", name)
 
-	originalProfile, err := config.Load(name)
+	cfg, err := config.LoadInstance(name)
 	if err != nil {
-		profilePath := config.ProfilePath(name)
-		return fmt.Errorf(
-			"failed to load profile for editing: %w\n\nPath: %s",
-			err,
-			profilePath,
-		)
+		return err
 	}
 
 	for {
@@ -169,51 +168,58 @@ func editFunc(_ *cobra.Command, args []string) error {
 			return fmt.Errorf("editor exited abnormally: %w", editorErr)
 		}
 
-		_, err = config.Load(name)
+		_, err = config.LoadInstance(name)
 		if err != nil {
-			if revertErr := config.Save(originalProfile); revertErr != nil {
-				return fmt.Errorf("failed to revert to original profile: %w", revertErr)
+			if revertErr := config.SaveInstance(cfg); revertErr != nil {
+				return fmt.Errorf("failed to revert to original config: %w", revertErr)
 			}
 			output.Error("invalid configuration: %v\n", err)
 			fmt.Printf("Re-edit? [Y/n] ")
 			var reply string
 			fmt.Scanln(&reply)
 			if reply == "n" || reply == "N" {
-				return fmt.Errorf("edit aborted: profile reverted to previous valid state")
+				return fmt.Errorf("edit aborted: config reverted to previous valid state")
 			}
 			continue
 		}
 
-		output.Success("Profile %q updated", name)
+		output.Success("Config %q updated", name)
 		return nil
 	}
 }
 
-// setHostFunc sets the SSH target for an instance profile and tests the connection.
-func setHostFunc(args []string, identityFile string) error {
+// instanceSetHostFunc sets the SSH target for an instance and tests the connection.
+func instanceSetHostFunc(args []string, identityFile string, skipVerify bool) error {
 	name, target := args[0], args[1]
-	if err := config.Exists(name); err != nil {
-		return fmt.Errorf("%w: %s", err, name)
+	if !config.InstanceExists(name) {
+		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
-
 	user, host, port, err := parseTarget(target)
 	if err != nil {
 		return fmt.Errorf("invalid target: %w", err)
 	}
 	fmt.Printf("Testing SSH connection to %s...\n", ssh.Target(user, host, port))
-	if err := ssh.TestConnect(user, host, port, identityFile); err != nil {
+	client := ssh.Client{
+		User:         user,
+		Host:         host,
+		Port:         port,
+		IdentityFile: identityFile,
+		SkipVerify:   skipVerify,
+	}
+	if err := client.TestConnect(); err != nil {
 		return fmt.Errorf("SSH connection test failed: %w", err)
 	}
-	p, err := config.Load(name)
+	cfg, err := config.LoadInstance(name)
 	if err != nil {
 		return err
 	}
-	p.SSHUser = user
-	p.SSHHost = host
-	p.SSHPort = port
-	p.SSHIdentityFile = identityFile
-	if err := config.Save(p); err != nil {
-		return fmt.Errorf("save profile: %w", err)
+	cfg.SSHUser = user
+	cfg.SSHHost = host
+	cfg.SSHPort = port
+	cfg.SSHIdentityFile = identityFile
+	cfg.SSHSkipVerify = skipVerify
+	if err := config.SaveInstance(cfg); err != nil {
+		return fmt.Errorf("save instance: %w", err)
 	}
 	// Since testing SSH connetion was successful, ignore error returned, as
 	// anything could cause a temporary issue and this is only best-effort.
@@ -227,19 +233,19 @@ func setHostFunc(args []string, identityFile string) error {
 	return nil
 }
 
-// listFunc displays all instance profiles and their current status.
-func listFunc(_ *cobra.Command, _ []string) error {
-	profiles, err := config.List()
+// instanceListFunc displays all instances and their current status.
+func instanceListFunc(_ *cobra.Command, _ []string) error {
+	cfgs, err := config.ListInstances()
 	if err != nil {
 		return err
 	}
-	if len(profiles) == 0 {
-		fmt.Println("No instance profiles found.")
+	if len(cfgs) == 0 {
+		fmt.Println("No instance found.")
 		fmt.Println("  Create one: appa instance init <name>")
 		return nil
 	}
 	var rows [][]string
-	for _, p := range profiles {
+	for _, p := range cfgs {
 		host := p.SSHHost
 		if host == "" {
 			host = "-"

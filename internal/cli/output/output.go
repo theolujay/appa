@@ -80,7 +80,7 @@ func Error(format string, args ...any) {
 //
 // Example output:
 //
-//	`Instance profile "personal" created`
+//	`Instance "personal" created`
 func Success(format string, args ...any) {
 	fmt.Fprintf(os.Stdout, format+"\n", args...)
 }

@@ -13,23 +13,30 @@ import (
 )
 
 func PreflightCmd() *cobra.Command {
-	return &cobra.Command{
+	var skipVerify bool
+	cmd := &cobra.Command{
 		Use:   "preflight <name>",
 		Short: "Run preflight checks on a target instance",
 		Args:  cobra.ExactArgs(1),
-		RunE:  preflightFunc,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return preflightFunc(cmd, args, skipVerify)
+		},
 	}
+	cmd.Flags().BoolVar(
+		&skipVerify, "skip-verify", false, "Skip SSH host key verification",
+	)
+	return cmd
 }
 
 // preflightFunc performs comprehensive preflight checks on a target instance,
 // validating SSH connectivity, OS compatibility, required ports, DNS resolution,
 // Docker installation status, and configuration requirements.
-func preflightFunc(_ *cobra.Command, args []string) error {
+func preflightFunc(_ *cobra.Command, args []string, skipVerify bool) error {
 	name := args[0]
-	if err := config.Exists(name); err != nil {
-		return fmt.Errorf("%w: %s", err, name)
+	if !config.InstanceExists(name) {
+		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
-	p, err := config.Load(name)
+	p, err := config.LoadInstance(name)
 	if err != nil {
 		return err
 	}
@@ -41,11 +48,18 @@ func preflightFunc(_ *cobra.Command, args []string) error {
 	failures := 0
 	warnings := 0
 
-	output.Check("Profile exists", true)
+	output.Check("Instance exists", true)
 
-	target := ssh.Target(p.SSHUser, p.SSHHost, p.SSHPort)
-	fmt.Printf("  Checking SSH connectivity to %s...\n", target)
-	if err := ssh.TestConnect(p.SSHUser, p.SSHHost, p.SSHPort); err != nil {
+	clientConfig := ssh.Client{
+		User:         p.SSHUser,
+		Host:         p.SSHHost,
+		Port:         p.SSHPort,
+		IdentityFile: p.SSHIdentityFile,
+		SkipVerify:   skipVerify || p.SSHSkipVerify,
+	}
+
+	fmt.Printf("  Checking SSH connectivity to %s...\n", ssh.Target(p.SSHUser, p.SSHHost, p.SSHPort))
+	if err := clientConfig.TestConnect(); err != nil {
 		output.Check("SSH reachable", false)
 		failures++
 	} else {
@@ -53,12 +67,6 @@ func preflightFunc(_ *cobra.Command, args []string) error {
 	}
 
 	fmt.Print("  Checking OS compatibility...\n")
-	clientConfig := ssh.Client{
-		User:         p.SSHUser,
-		Host:         p.SSHHost,
-		Port:         p.SSHPort,
-		IdentityFile: p.SSHIdentityFile,
-	}
 	out, err := ssh.RunCommand(clientConfig, "cat /etc/os-release 2>/dev/null | grep -i ^ID=")
 	if err != nil || !strings.Contains(strings.ToLower(out), "ubuntu") {
 		output.Check("OS supported (Ubuntu)", false)

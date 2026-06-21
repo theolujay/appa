@@ -29,19 +29,21 @@ func SetupCmd() *cobra.Command {
 	var force bool
 	var tags string
 	var skipTags string
+	var skipVerify bool
 
 	cmd := &cobra.Command{
 		Use:   "setup <name>",
 		Short: "First-time provisioning of an Appa instance",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return setupFunc(args, force, tags, skipTags)
+			return setupFunc(args, force, tags, skipTags, skipVerify)
 		},
 	}
 
 	cmd.Flags().BoolVar(&force, "force", false, "Skip preflight checks")
 	cmd.Flags().StringVar(&tags, "tags", "", "Only run Ansible tasks with these tags")
 	cmd.Flags().StringVar(&skipTags, "skip-tags", "", "Skip Ansible tasks with these tags")
+	cmd.Flags().BoolVar(&skipVerify, "skip-verify", false, "Skip SSH host key verification")
 	return cmd
 }
 
@@ -57,43 +59,47 @@ func SetupCmd() *cobra.Command {
 func ApplyCmd() *cobra.Command {
 	var tags string
 	var skipTags string
+	var skipVerify bool
 
 	cmd := &cobra.Command{
 		Use:   "apply <name>",
 		Short: "Re-apply configuration changes idempotently",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return applyFunc(args, tags, skipTags)
+			return applyFunc(args, tags, skipTags, skipVerify)
 		},
 	}
 
 	cmd.Flags().StringVar(&tags, "tags", "", "Only run Ansible tasks with these tags")
 	cmd.Flags().StringVar(&skipTags, "skip-tags", "", "Skip Ansible tasks with these tags")
+	cmd.Flags().BoolVar(&skipVerify, "skip-verify", false, "Skip SSH host key verification")
 	return cmd
 }
 
 // setupFunc handles the logic for the setup command, coordinating preflight checks,
 // inventory generation, and playbook execution.
-func setupFunc(args []string, force bool, tags, skipTags string) error {
+func setupFunc(args []string, force bool, tags, skipTags string, skipVerify bool) error {
 	name := args[0]
-	if err := config.Exists(name); err != nil {
-		return fmt.Errorf("%w: %s", err, name)
+	if !config.InstanceExists(name) {
+		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
-	p, err := config.Load(name)
+	cfg, err := config.LoadInstance(name)
 	if err != nil {
 		return err
 	}
-	if p.SSHHost == "" {
+	if cfg.SSHHost == "" {
 		return fmt.Errorf("%w: %s", errNoSSHTarget, name)
 	}
-	if p.SetupDone {
+	if cfg.SetupDone {
 		output.Warn("Instance %q has already been set up; use 'appa apply %s' for changes", name, name)
 	}
+
+	skipVerify = skipVerify || cfg.SSHSkipVerify
 
 	if !force {
 		fmt.Println("Running preflight checks...")
 		preflightCmd := PreflightCmd()
-		preflightCmd.SetArgs([]string{name})
+		preflightCmd.SetArgs([]string{name, "--skip-verify=" + fmt.Sprintf("%t", skipVerify)})
 		if err := preflightCmd.Execute(); err != nil {
 			return fmt.Errorf("preflight failed: use --force to skip")
 		}
@@ -107,18 +113,22 @@ func setupFunc(args []string, force bool, tags, skipTags string) error {
 	defer os.RemoveAll(tmpDir)
 
 	inventoryPath := filepath.Join(tmpDir, "inventory.ini")
-	if err := ansible.GenerateInventory(p, inventoryPath); err != nil {
+	if err := ansible.GenerateInventory(cfg, inventoryPath, skipVerify); err != nil {
 		return fmt.Errorf("generate inventory: %w", err)
 	}
 
 	extraVars := map[string]any{
-		"appa_instance_domain": p.Domain,
+		"appa_instance_domain": cfg.Domain,
 		"appa_version":         vcs.Version(),
-		"cloudflare_token":     p.CloudflareToken,
-		"smtp_host":            p.SMTPHost,
-		"smtp_port":            p.SMTPPort,
-		"smtp_username":        p.SMTPUsername,
-		"smtp_password":        p.SMTPPassword,
+		"cloudflare_token":     cfg.CloudflareToken,
+		"smtp_host":            cfg.SMTPHost,
+		"smtp_port":            cfg.SMTPPort,
+		"smtp_username":        cfg.SMTPUsername,
+		"smtp_password":        cfg.SMTPPassword,
+	}
+
+	if skipVerify {
+		cfg.SSHSkipVerify = true
 	}
 
 	playbook := ansible.Playbook{
@@ -144,19 +154,19 @@ func setupFunc(args []string, force bool, tags, skipTags string) error {
 	}
 
 	output.Section("Waiting for Appa API to become reachable")
-	apiURL := fmt.Sprintf("https://%s/v1/healthcheck", p.Domain)
-	if p.Domain == "" {
-		apiURL = fmt.Sprintf("http://%s:8080/v1/healthcheck", p.SSHHost)
+	apiURL := fmt.Sprintf("https://%s/v1/healthcheck", cfg.Domain)
+	if cfg.Domain == "" {
+		apiURL = fmt.Sprintf("http://%s/v1/healthcheck", cfg.SSHHost)
 	}
 	if err := pollHealth(apiURL, 60*time.Second); err != nil {
 		return fmt.Errorf("API health check failed: %w", err)
 	}
 	output.Success("Appa API is reachable at %s", apiURL)
 
-	p.SetupDone = true
-	p.APIURL = apiURL
-	if err := config.Save(p); err != nil {
-		return fmt.Errorf("save profile: %w", err)
+	cfg.SetupDone = true
+	cfg.APIURL = apiURL
+	if err := config.SaveInstance(cfg); err != nil {
+		return fmt.Errorf("save instance: %w", err)
 	}
 
 	output.Section("Setup Complete")
@@ -167,21 +177,30 @@ func setupFunc(args []string, force bool, tags, skipTags string) error {
 
 // applyFunc handles the logic for the apply command, ensuring connectivity before
 // re-running provisioning playbooks with specific tags.
-func applyFunc(args []string, tags, skipTags string) error {
+func applyFunc(args []string, tags, skipTags string, skipVerify bool) error {
 	name := args[0]
-	if err := config.Exists(name); err != nil {
-		return fmt.Errorf("%w: %s", err, name)
+	if !config.InstanceExists(name) {
+		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
-	p, err := config.Load(name)
+	cfg, err := config.LoadInstance(name)
 	if err != nil {
 		return err
 	}
-	if p.SSHHost == "" {
+	if cfg.SSHHost == "" {
 		return fmt.Errorf("%w: %s", errNoSSHTarget, name)
 	}
 
-	fmt.Printf("Checking SSH connectivity to %s...\n", ssh.Target(p.SSHUser, p.SSHHost, p.SSHPort))
-	if err := ssh.TestConnect(p.SSHUser, p.SSHHost, p.SSHPort); err != nil {
+	skipVerify = skipVerify || cfg.SSHSkipVerify
+
+	client := ssh.Client{
+		User:         cfg.SSHUser,
+		Host:         cfg.SSHHost,
+		Port:         cfg.SSHPort,
+		IdentityFile: cfg.SSHIdentityFile,
+		SkipVerify:   skipVerify,
+	}
+	fmt.Printf("Checking SSH connectivity to %s...\n", ssh.Target(cfg.SSHUser, cfg.SSHHost, cfg.SSHPort))
+	if err := client.TestConnect(); err != nil {
 		return fmt.Errorf("SSH connection failed: %w", err)
 	}
 
@@ -192,18 +211,18 @@ func applyFunc(args []string, tags, skipTags string) error {
 	defer os.RemoveAll(tmpDir)
 
 	inventoryPath := filepath.Join(tmpDir, "inventory.ini")
-	if err := ansible.GenerateInventory(p, inventoryPath); err != nil {
+	if err := ansible.GenerateInventory(cfg, inventoryPath, skipVerify); err != nil {
 		return fmt.Errorf("generate inventory: %w", err)
 	}
 
 	extraVars := map[string]any{
-		"appa_instance_domain": p.Domain,
+		"appa_instance_domain": cfg.Domain,
 		"appa_version":         vcs.Version(),
-		"cloudflare_token":     p.CloudflareToken,
-		"smtp_host":            p.SMTPHost,
-		"smtp_port":            p.SMTPPort,
-		"smtp_username":        p.SMTPUsername,
-		"smtp_password":        p.SMTPPassword,
+		"cloudflare_token":     cfg.CloudflareToken,
+		"smtp_host":            cfg.SMTPHost,
+		"smtp_port":            cfg.SMTPPort,
+		"smtp_username":        cfg.SMTPUsername,
+		"smtp_password":        cfg.SMTPPassword,
 	}
 
 	playbook := ansible.Playbook{

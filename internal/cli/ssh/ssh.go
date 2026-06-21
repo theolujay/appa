@@ -14,6 +14,7 @@ type Client struct {
 	Host         string
 	Port         int
 	IdentityFile string
+	SkipVerify   bool
 }
 
 // Target returns a display string for the SSH target.
@@ -25,32 +26,34 @@ func Target(user, host string, port int) string {
 	return fmt.Sprintf("%s@%s", user, addr)
 }
 
-// buildArgs builds the ssh command-line arguments for a non-interactive session.
-func buildArgs(user, host string, port int, identityFile string) []string {
+// sshArgs builds the base SSH arguments from the client
+// configuration, excluding the remote user@host and command.
+func (c Client) sshArgs() []string {
 	a := []string{
 		"-o", "ConnectTimeout=5",
-		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "BatchMode=yes",
 	}
-	if port > 0 && port != 22 {
-		a = append(a, "-p", fmt.Sprintf("%d", port))
+	if c.SkipVerify {
+		a = append(a,
+			"-o", "StrictHostKeyChecking=no",
+			"-o", "UserKnownHostsFile=/dev/null",
+		)
+	} else {
+		a = append(a, "-o", "StrictHostKeyChecking=accept-new")
 	}
-	if identityFile != "" {
-		a = append(a, "-i", identityFile)
+	if c.Port > 0 && c.Port != 22 {
+		a = append(a, "-p", fmt.Sprintf("%d", c.Port))
 	}
-	a = append(a, fmt.Sprintf("%s@%s", user, host))
+	if c.IdentityFile != "" {
+		a = append(a, "-i", c.IdentityFile)
+	}
 	return a
 }
 
-// TestConnect attempts a non-interactive SSH connection to verify connectivity and credentials.
-func TestConnect(user, host string, port int, identityFile ...string) error {
-	idFile := ""
-	if len(identityFile) > 0 {
-		idFile = identityFile[0]
-	}
-	a := buildArgs(user, host, port, idFile)
-	// run the Unix `true` utility (exits 0) to confirm connectivity
-	a = append(a, "true")
+// TestConnect attempts an SSH connection to verify connectivity and credentials.
+func (c Client) TestConnect() error {
+	a := c.sshArgs()
+	a = append(a, fmt.Sprintf("%s@%s", c.User, c.Host), "true")
 	cmd := exec.Command("ssh", a...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -62,8 +65,8 @@ func TestConnect(user, host string, port int, identityFile ...string) error {
 // RunCommand executes a non-interactive command on the remote host via SSH
 // and returns its combined output.
 func RunCommand(c Client, cmdLine string) (string, error) {
-	a := buildArgs(c.User, c.Host, c.Port, c.IdentityFile)
-	a = append(a, cmdLine)
+	a := c.sshArgs()
+	a = append(a, fmt.Sprintf("%s@%s", c.User, c.Host), cmdLine)
 	cmd := exec.Command("ssh", a...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -75,9 +78,14 @@ func RunCommand(c Client, cmdLine string) (string, error) {
 // RunInteractiveCommand returns an exec.Cmd pre-configured for an SSH connection.
 // It does not run the command immediately, allowing the caller to customize Stdin/Stdout.
 func RunInteractiveCommand(c Client, remoteCmd string) *exec.Cmd {
-	a := []string{
-		"-o", "ConnectTimeout=10",
-		"-o", "StrictHostKeyChecking=accept-new",
+	a := []string{"-o", "ConnectTimeout=10"}
+	if c.SkipVerify {
+		a = append(a,
+			"-o", "StrictHostKeyChecking=no",
+			"-o", "UserKnownHostsFile=/dev/null",
+		)
+	} else {
+		a = append(a, "-o", "StrictHostKeyChecking=accept-new")
 	}
 	if c.Port > 0 && c.Port != 22 {
 		a = append(a, "-p", fmt.Sprintf("%d", c.Port))
@@ -89,8 +97,7 @@ func RunInteractiveCommand(c Client, remoteCmd string) *exec.Cmd {
 	if remoteCmd != "" {
 		a = append(a, remoteCmd)
 	}
-	cmd := exec.Command("ssh", a...)
-	return cmd
+	return exec.Command("ssh", a...)
 }
 
 // ResolveIP attempts to resolve a hostname to an IP address using dig or getent.
