@@ -3,6 +3,23 @@ security_groups:
   - name: appa-admin
   - name: deploy
 
+deploy_user:
+  name: deploy
+  groups:
+    - docker
+    - appa-admin
+  sudo: "ALL=(ALL) NOPASSWD: /usr/bin/systemctl, /usr/bin/docker"
+  ssh_authorized_keys: [] # populated from instance config at runtime
+
+# Optional sudo user for operator manual SSH
+operator_user:
+  name: ""  # skip creation if empty
+  groups:
+    - sudo
+    - appa-admin
+  sudo: "ALL=(ALL:ALL) ALL"
+  ssh_authorized_keys: []
+
 sudo_rules: []
 inactive_users: []
 unauthorized_users: []

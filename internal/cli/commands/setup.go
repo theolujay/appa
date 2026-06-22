@@ -26,24 +26,29 @@ import (
 //	-----------------------
 //	`
 func SetupCmd() *cobra.Command {
-	var force bool
-	var tags string
-	var skipTags string
-	var skipVerify bool
+	var (
+		force      bool
+		tags       string
+		skipTags   string
+		skipVerify bool
+		opPubKey   string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "setup <name>",
 		Short: "First-time provisioning of an Appa instance",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return setupFunc(args, force, tags, skipTags, skipVerify)
+			return setupFunc(args, opPubKey, force, tags, skipTags, skipVerify)
 		},
 	}
 
+	cmd.Flags().StringVarP(&opPubKey, "op-key", "", "", "SSH public key for instance username")
 	cmd.Flags().BoolVar(&force, "force", false, "Skip preflight checks")
 	cmd.Flags().StringVar(&tags, "tags", "", "Only run Ansible tasks with these tags")
 	cmd.Flags().StringVar(&skipTags, "skip-tags", "", "Skip Ansible tasks with these tags")
 	cmd.Flags().BoolVar(&skipVerify, "skip-verify", false, "Skip SSH host key verification")
+
 	return cmd
 }
 
@@ -57,9 +62,11 @@ func SetupCmd() *cobra.Command {
 //	------------------------------------
 //	`
 func ApplyCmd() *cobra.Command {
-	var tags string
-	var skipTags string
-	var skipVerify bool
+	var (
+		tags       string
+		skipTags   string
+		skipVerify bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "apply <name>",
@@ -78,7 +85,7 @@ func ApplyCmd() *cobra.Command {
 
 // setupFunc handles the logic for the setup command, coordinating preflight checks,
 // inventory generation, and playbook execution.
-func setupFunc(args []string, force bool, tags, skipTags string, skipVerify bool) error {
+func setupFunc(args []string, opPubKey string, force bool, tags, skipTags string, skipVerify bool) error {
 	name := args[0]
 	if !config.InstanceExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
@@ -100,7 +107,7 @@ func setupFunc(args []string, force bool, tags, skipTags string, skipVerify bool
 		fmt.Println("Running preflight checks...")
 		preflightCmd := PreflightCmd()
 		preflightCmd.SetArgs([]string{name, "--skip-verify=" + fmt.Sprintf("%t", skipVerify)})
-		if err := preflightCmd.Execute(); err != nil {
+		if err = preflightCmd.Execute(); err != nil {
 			return fmt.Errorf("preflight failed: use --force to skip")
 		}
 	}
@@ -113,7 +120,7 @@ func setupFunc(args []string, force bool, tags, skipTags string, skipVerify bool
 	defer os.RemoveAll(tmpDir)
 
 	inventoryPath := filepath.Join(tmpDir, "inventory.ini")
-	if err := ansible.GenerateInventory(cfg, inventoryPath, skipVerify); err != nil {
+	if err = ansible.GenerateInventory(cfg, inventoryPath, skipVerify); err != nil {
 		return fmt.Errorf("generate inventory: %w", err)
 	}
 
@@ -125,6 +132,15 @@ func setupFunc(args []string, force bool, tags, skipTags string, skipVerify bool
 		"smtp_port":            cfg.SMTPPort,
 		"smtp_username":        cfg.SMTPUsername,
 		"smtp_password":        cfg.SMTPPassword,
+
+		"operator_user": map[string]any{
+			"name":     cfg.OperatorUser,
+			"ssh_keys": []string{opPubKey},
+		},
+		"deploy_user": map[string]any{
+			"name":     ansible.UserDeploy,
+			"ssh_keys": []string{opPubKey},
+		},
 	}
 
 	if skipVerify {
@@ -141,37 +157,39 @@ func setupFunc(args []string, force bool, tags, skipTags string, skipVerify bool
 	output.Section("Applying security hardening")
 	secPlaybook := ansible.PlaybookPath("security-hardening.yml")
 	playbook.Name = secPlaybook
-	if err := ansible.RunPlaybook(playbook); err != nil {
-		return err
+	if err = ansible.RunPlaybook(playbook); err != nil {
+		return fmt.Errorf("apply security hardening: %w", err)
 	}
 
 	output.Section("Deploying Appa Stack")
+	cfg.SSHUser = ansible.UserDeploy
 
 	stackPlaybook := ansible.PlaybookPath("deploy-stack.yml")
 	playbook.Name = stackPlaybook
-	if err := ansible.RunPlaybook(playbook); err != nil {
-		return err
+	if err = ansible.RunPlaybook(playbook); err != nil {
+		return fmt.Errorf("deploy appa stack: %w", err)
 	}
 
 	output.Section("Waiting for Appa API to become reachable")
-	apiURL := fmt.Sprintf("https://%s/v1/healthcheck", cfg.Domain)
+	apiURL := fmt.Sprintf("https://%s", cfg.Domain)
 	if cfg.Domain == "" {
-		apiURL = fmt.Sprintf("http://%s/v1/healthcheck", cfg.SSHHost)
+		apiURL = fmt.Sprintf("http://%s", cfg.SSHHost)
 	}
-	if err := pollHealth(apiURL, 60*time.Second); err != nil {
+	healthURL := apiURL + "/v1/healthcheck"
+	if err = pollHealth(healthURL, 60*time.Second); err != nil {
 		return fmt.Errorf("API health check failed: %w", err)
 	}
-	output.Success("Appa API is reachable at %s", apiURL)
+	output.Success("Appa API is reachable at %s", healthURL)
 
+	cfg.BaseAPIURL = apiURL
 	cfg.SetupDone = true
-	cfg.APIURL = apiURL
-	if err := config.SaveInstance(cfg); err != nil {
+	if err = config.SaveInstance(cfg); err != nil {
 		return fmt.Errorf("save instance: %w", err)
 	}
 
 	output.Section("Setup Complete")
 	output.Success("Instance %q is ready!", name)
-	output.Success("  API URL: %s", apiURL)
+	output.Success("  API URL: %s", healthURL)
 	return nil
 }
 

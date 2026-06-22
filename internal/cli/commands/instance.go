@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"os/user"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -27,12 +28,19 @@ func InstanceCmd() *cobra.Command {
 }
 
 func instanceInitCmd() *cobra.Command {
-	return &cobra.Command{
+	var opName string
+
+	cmd := &cobra.Command{
 		Use:   "init <name>",
 		Short: "Create a new instance",
 		Args:  cobra.ExactArgs(1),
-		RunE:  instanceInitFunc,
+		RunE: func(_ *cobra.Command, args []string) error {
+			return instanceInitFunc(args, opName)
+		},
 	}
+
+	cmd.Flags().StringVarP(&opName, "op-name", "", "", "Target instance username to set (default -> '$(whoami)`)")
+	return cmd
 }
 
 func instanceEditCmd() *cobra.Command {
@@ -78,14 +86,23 @@ func instanceListCmd() *cobra.Command {
 }
 
 // instanceInitFunc handles the creation of a new instance with validation.
-func instanceInitFunc(_ *cobra.Command, args []string) error {
+func instanceInitFunc(args []string, opName string) error {
 	name := args[0]
-	if !config.InstanceExists(name) {
-		return fmt.Errorf("%w: %s", errConfigNotFound, name)
+	if config.InstanceExists(name) {
+		return fmt.Errorf("instance %q already exists", name)
 	}
 
 	cfg := config.DefaultInstance(name)
-	cfg.Name = name
+	if opName == "" {
+		u, err := user.Current()
+		if err != nil {
+			return fmt.Errorf("unable to derive current username: %w", err)
+		}
+		opName = u.Username
+
+	}
+	cfg.OperatorUser = opName
+
 	if err := config.SaveInstance(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}

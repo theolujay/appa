@@ -57,6 +57,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - {{ appa_stack_dir }}/data/api:/data
       - {{ appa_stack_dir }}/data/railpack-cache:/tmp/railpack
+      - {{ appa_stack_dir }}/builds:/builds
 
   buildkit:
     image: {{ buildkit_image }}

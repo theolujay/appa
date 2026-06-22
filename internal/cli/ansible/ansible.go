@@ -61,6 +61,8 @@ type Playbook struct {
 	ExtraVars     map[string]any
 }
 
+const UserDeploy = "deploy"
+
 // GenerateInventory creates an Ansible inventory file on
 // disk using the provided instance configuration. It sets
 // up the [appa] group with the host's SSH connection details.
@@ -128,7 +130,7 @@ func RunPlaybook(p Playbook) error {
 		return fmt.Errorf("install galaxy deps: %w", err)
 	}
 	args := []string{
-		"-i",
+		"--inventory",
 		p.InventoryPath,
 		p.Name,
 	}

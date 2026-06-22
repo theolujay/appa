@@ -12,6 +12,14 @@
     - "{{ appa_stack_dir }}/data/api"
     - "{{ appa_stack_dir }}/scripts"
 
+- name: Create builds directory
+  ansible.builtin.file:
+    path: "{{ appa_stack_dir }}/builds"
+    state: directory
+    owner: "{{ deploy_user.name }}"
+    group: appa-admin
+    mode: "0755"
+
 - name: Check if password file exists
   ansible.builtin.stat:
     path: "{{ appa_stack_dir }}/.pg_password"

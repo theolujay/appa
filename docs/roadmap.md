@@ -89,13 +89,14 @@ long-term direction for users who need higher availability.
 
 ### Project-Level CLI
 
-The first CLI milestone should focus on remote instance operations. Later, the
-same CLI can become a developer workflow surface for projects:
+The CLI provides a developer workflow surface for projects:
 
-- `appa project init <name>` for local project metadata.
-- `appa deploy` for API-backed deployment to a selected Appa instance.
-- `appa logs`, `appa env`, `appa stop`, and `appa rollback` for project
-  operations.
+- `appa deploy init <source>` for local project metadata with source path
+  and optional target instance mapping.
+- `appa deploy edit <name>` for editing project config.
+- `appa deploy <name>` for rsync-based source shipping and API-backed
+  deployment to the target Appa instance.
+- Project-level `logs`, `env`, `stop`, and `rollback` operations (planned).
 - Project-to-instance mappings so one CLI can manage personal, staging, and
   client Appa instances.
 
@@ -104,6 +105,21 @@ same CLI can become a developer workflow surface for projects:
 A root `.mise.toml` should eventually pin Go and project tooling versions for
 contributors and CI. Railpack already uses Mise internally for application
 runtime installation; Appa only needs Mise for its own development environment.
+
+### Content-Addressable Sync Engine
+
+Currently, `appa deploy` uses rsync over SSH to ship source code to the
+instance. This works but depends on `rsync` being present on both machines
+and compares files by timestamp/size.
+
+A future improvement is a pure-Go content-addressable sync engine over SSH:
+- CLI generates a SHA-256 manifest of the project source.
+- A server-side `appa-agent` diffs the manifest against a content-addressable
+  cache and returns only missing hashes.
+- The CLI streams a compressed archive of only missing files over SSH.
+- The agent assembles the full workspace from cache and streamed files.
+
+See [cas-sync.md](./cas-sync.md) for the design research.
 
 ### Encrypted Instance Profiles
 

@@ -7,8 +7,9 @@ PostgreSQL, BuildKit, Railpack, Docker, Caddy, and a React dashboard.
 
 This document answers architectural questions. Setup and contribution guidelines
 live in [CONTRIBUTING.md](../CONTRIBUTING.md). Delivery phases live in
-[ROADMAP.md](./roadmap.md). Research notes, data model, state machines, and
-external references live in [REFERENCE.md](./reference.md).
+[ROADMAP.md](./roadmap.md). Research notes, data model, state machines,
+external references, and design research live in [REFERENCE.md](./reference.md)
+and [cas-sync.md](./cas-sync.md).
 
 ## Glossary
 
@@ -18,7 +19,10 @@ external references live in [REFERENCE.md](./reference.md).
 | Appa Server | Remote API, dashboard, and deployment runtime on a VPS. |
 | Appa Instance | One Appa Server installation managed by the CLI. |
 | Appa Stack | Server-side services: API, UI, PostgreSQL, BuildKit, Caddy. |
-| Instance profile | Local CLI configuration for one instance (SSH target, settings). |
+| Instance config | Local CLI configuration for one instance (SSH target, settings, operator). |
+| Project | Local CLI configuration mapping a source directory to a target instance. |
+| Deploy user | Non-privileged system user created during setup for CLI automation (rsync, API calls). |
+| Operator user | Optional sudo user created during setup for manual SSH access. |
 | Deployment | One submitted source package and its lifecycle state. |
 | Railpack | Runtime detector and build-plan generator. |
 | BuildKit | Build daemon that executes the Railpack build plan. |
@@ -67,16 +71,29 @@ tokens.
 
 Progressive configuration: SSH target first, then domain, Cloudflare, SMTP, etc.
 
-### User Deploys Code
+### User Deploys Code (API / Dashboard)
 
 1. API creates `Deployment` row with `pending` status.
-2. Pipeline clones Git repo (or extracts uploaded ZIP).
+2. Pipeline clones Git repo (or extracts uploaded ZIP, or reads from
+   `/builds/<project>/` for CLI-triggered deploys).
 3. `railpack prepare` inspects source, writes build plan.
 4. `buildctl build` runs Railpack frontend; image tar streams into `docker load`.
 5. Docker starts `appa-{deployment_id}` on `appa_net`.
 6. Pipeline waits for container port to accept TCP.
 7. Caddy receives route from `{deployment_id}.localhost` to container.
 8. Deployment status → `running`.
+
+### Operator Deploys a Project (CLI)
+
+1. `appa deploy init <source> --target <instance>` creates project metadata
+   in `~/.appa/projects/<name>/config.toml`.
+2. `appa deploy <name>` loads the project and target instance profiles.
+3. CLI rsyncs the source directory over SSH to `/opt/appa/builds/<project>/`
+   on the instance using the deploy user's credentials.
+4. CLI sends an API request to the instance with
+   `{"source_path": "/builds/<project>/"}`.
+5. API pipeline reads source from the local path and proceeds through
+   Railpack → BuildKit → container start (same flow as Git deploys).
 
 ### Logs Streaming
 
@@ -109,7 +126,9 @@ Progressive configuration: SSH target first, then domain, Cloudflare, SMTP, etc.
 8. Logs persisted before WebSocket publication.
 9. Uploaded archives extracted into isolated per-upload directories.
 10. Platform and user workloads share a network, not a process.
-11. CLI is not a second deployment engine — project deploys go through the API.
+11. CLI ships source to the instance via rsync; the API remains the sole
+    deployment authority — all builds, container lifecycle, and route
+    management happen server-side.
 12. `setup`/`apply` are idempotent.
 13. Operator secrets are never logged.
 14. Local instance profiles and credentials are encrypted using Ansible Vault (planned).
@@ -137,3 +156,10 @@ Progressive configuration: SSH target first, then domain, Cloudflare, SMTP, etc.
 - **Wildcard TLS via DNS-01** — HTTP-01 doesn't support wildcards; Cloudflare + caddy-dns plugin.
 - **CLI-managed provisioning** — CLI owns profiles/preflight/Ansible gen; Ansible owns host mutations; API owns deployments.
 - **Ansible Vault for Local Secrets** (Planned) — Instance profiles and operator configuration (including passwords, tokens, and SSH keys) are encrypted on the operator's disk using Ansible Vault to protect secrets at rest.
+- **rsync for source shipping** — `appa deploy` uses rsync over SSH to transfer
+  source files to the instance. It relies on system `rsync` on both ends but
+  requires no new infrastructure. A pure-Go content-addressable replacement
+  is researched in [cas-sync.md](./cas-sync.md) for future consideration.
+- **Content-Addressable Sync** (Future) — A CAS engine over SSH using SHA-256
+  manifests and a server-side agent, eliminating the rsync dependency and
+  enabling deterministic incremental sync by content hash.

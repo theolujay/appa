@@ -3,6 +3,7 @@ package ssh
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 )
@@ -98,6 +99,37 @@ func RunInteractiveCommand(c Client, remoteCmd string) *exec.Cmd {
 		a = append(a, remoteCmd)
 	}
 	return exec.Command("ssh", a...)
+}
+
+// RsyncOpts returns the SSH options string for rsync's -e flag,
+// constructed from the client configuration.
+func RsyncOpts(c Client) string {
+	o := []string{"ssh"}
+	if c.Port > 0 && c.Port != 22 {
+		o = append(o, "-p", fmt.Sprintf("%d", c.Port))
+	}
+	if c.IdentityFile != "" {
+		o = append(o, "-i", c.IdentityFile)
+	}
+	if c.SkipVerify {
+		o = append(o, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null")
+	} else {
+		o = append(o, "-o", "StrictHostKeyChecking=accept-new")
+	}
+	o = append(o, "-o", "ConnectTimeout=10")
+	return strings.Join(o, " ")
+}
+
+// Rsync copies src to the remote destPath via rsync over SSH.
+// It runs the rsync command with the client's SSH configuration.
+// Output is written to the provided writers (pass io.Discard to suppress).
+func Rsync(c Client, src, destPath string, stdout, stderr io.Writer) error {
+	target := fmt.Sprintf("%s@%s:%s", c.User, c.Host, destPath)
+	args := []string{"-avz", "--mkpath", "-e", RsyncOpts(c), src, target}
+	cmd := exec.Command("rsync", args...)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return cmd.Run()
 }
 
 // ResolveIP attempts to resolve a hostname to an IP address using dig or getent.

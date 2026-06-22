@@ -95,7 +95,7 @@ func projectInitFunc(args []string, target, name string) error {
 		output.Success("Project name derived from source")
 	}
 	output.Success("Project %q created", name)
-	output.Success("\tNext: appa project deploy %s", name)
+	output.Success("\tNext: appa deploy %s", name)
 
 	return nil
 }

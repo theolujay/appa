@@ -35,13 +35,14 @@ type InstanceConfig struct {
 	SSHIdentityFile string `toml:"ssh_identity_file,omitempty"`
 	SSHSkipVerify   bool   `toml:"skip_ssh_verify,omitempty"`
 	Domain          string `toml:"domain"`
+	OperatorUser    string `toml:"operator_user_name,omitempty"`
 	CloudflareToken string `toml:"cloudflare_token"`
 	SMTPHost        string `toml:"smtp_host"`
 	SMTPPort        int    `toml:"smtp_port"`
 	SMTPUsername    string `toml:"smtp_username"`
 	SMTPPassword    string `toml:"smtp_password"`
 	SetupDone       bool   `toml:"setup_done"`
-	APIURL          string `toml:"api_url,omitempty"`
+	BaseAPIURL      string `toml:"base_api_url,omitempty"`
 }
 
 type ProjectConfig struct {
@@ -56,6 +57,7 @@ const (
 	Instance Kind = "instance"
 	Project  Kind = "project"
 )
+const ServerDeployDir = "/opt/appa/builds"
 
 func DefaultInstance(name string) InstanceConfig {
 	return InstanceConfig{
@@ -97,7 +99,10 @@ func PathFor(k Kind, name string) string {
 func load[T InstanceConfig | ProjectConfig](path string) (T, error) {
 	var cfg T
 	_, err := toml.DecodeFile(path, &cfg)
-	return cfg, fmt.Errorf("open config file: %w", err)
+	if err != nil {
+		return cfg, fmt.Errorf("open config file: %w", err)
+	}
+	return cfg, nil
 }
 
 func LoadInstance(name string) (InstanceConfig, error) {
@@ -195,6 +200,40 @@ func ProjectExists(name string) bool {
 	return err == nil
 }
 
+func validateInstance(cfg InstanceConfig) error {
+	var errs []error
+	if !ValidName(cfg.Name) {
+		errs = append(errs, fmt.Errorf("invalid name %q", cfg.Name))
+	}
+	if cfg.SSHUser != "" && cfg.SSHHost == "" {
+		errs = append(errs, fmt.Errorf("ssh_host is required when ssh_user is set"))
+	}
+	if cfg.SSHHost != "" && cfg.SSHUser == "" {
+		errs = append(errs, fmt.Errorf("ssh_user is required when ssh_host is set"))
+	}
+	if cfg.SSHPort != 0 && (cfg.SSHPort < 1 || cfg.SSHPort > 65535) {
+		errs = append(errs, fmt.Errorf("ssh_port %d out of range (1-65535)", cfg.SSHPort))
+	}
+	if cfg.OperatorUser != "" && !ValidName(cfg.OperatorUser) {
+		errs = append(errs, fmt.Errorf("invalid operator_user_name %q", cfg.OperatorUser))
+	}
+	return errors.Join(errs...)
+}
+
+func validateProject(cfg ProjectConfig) error {
+	var errs []error
+	if !ValidName(cfg.Name) {
+		errs = append(errs, fmt.Errorf("invalid name %q", cfg.Name))
+	}
+	if cfg.Source == "" {
+		errs = append(errs, fmt.Errorf("source is required"))
+	}
+	if cfg.Target != "" && !InstanceExists(cfg.Target) {
+		errs = append(errs, fmt.Errorf("target instance %q not found", cfg.Target))
+	}
+	return errors.Join(errs...)
+}
+
 var guiEditors = map[string]string{
 	// Needs --wait
 	"code":          "--wait",
@@ -266,15 +305,27 @@ func Edit(kind Kind, name string) error {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 
-		if editorErr := cmd.Run(); editorErr != nil {
-			return fmt.Errorf("editor exited abnormally: %w", editorErr)
+		if eErr := cmd.Run(); eErr != nil {
+			return fmt.Errorf("editor exited abnormally: %w", eErr)
 		}
 
+		var vErr error
 		switch kind {
 		case Instance:
-			_, err = LoadInstance(name)
+			var cfg InstanceConfig
+			cfg, err = LoadInstance(name)
+			if err == nil {
+				vErr = validateInstance(cfg)
+			}
 		case Project:
-			_, err = LoadProject(name)
+			var cfg ProjectConfig
+			cfg, err = LoadProject(name)
+			if err == nil {
+				vErr = validateProject(cfg)
+			}
+		}
+		if vErr != nil {
+			err = vErr
 		}
 
 		if err != nil {
@@ -301,4 +352,18 @@ func Edit(kind Kind, name string) error {
 		output.Success("Config %q updated", name)
 		return nil
 	}
+}
+func ServerDirFor(name string) string {
+	return filepath.Join(ServerDeployDir, name)
+}
+func ParseProjectSource(c string) (string, error) {
+
+	if !strings.HasPrefix(c, "/") {
+		s, err := filepath.Abs(c)
+		if err != nil {
+			return "", err
+		}
+		c = s
+	}
+	return c + "/", nil
 }

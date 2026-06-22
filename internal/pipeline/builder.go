@@ -152,8 +152,12 @@ func (p *Pipeline) streamLogs(id int64, phase string, r io.Reader) {
 func (p *Pipeline) cloneRepo(ctx context.Context, source string, id int64) (string, error) {
 	// Check if source is a local directory (for uploads) or a git URL
 	isLocal := false
-	if info, err := os.Stat(source); err == nil && info.IsDir() {
-		isLocal = true
+	path, err := filepath.Abs(source)
+	if err == nil {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			isLocal = true
+			source = path
+		}
 	}
 
 	if isLocal {
