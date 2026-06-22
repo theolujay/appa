@@ -2,9 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -12,29 +9,6 @@ import (
 	"github.com/theolujay/appa/internal/cli/output"
 	"github.com/theolujay/appa/internal/cli/ssh"
 )
-
-var guiEditors = map[string]string{
-	// Needs --wait
-	"code":          "--wait",
-	"code-insiders": "--wait",
-	"cursor":        "--wait",
-	"zed":           "--wait",
-	"atom":          "--wait",
-	"pulsar":        "--wait",
-	"bbedit":        "--wait",
-	"coteditor":     "--wait",
-	"mousepad":      "--wait",
-	"geany":         "--wait",
-	"notepadqq":     "--wait",
-	// Needs -w
-	"subl":              "-w",
-	"sublime_text":      "-w",
-	"gedit":             "-w",
-	"gnome-text-editor": "-w",
-	"mate":              "-w",
-	// Needs -f
-	"gvim": "-f",
-}
 
 // InstanceCmd returns the root command for managing Appa instances.
 // It provides subcommands for initializing, editing, setting hosts, and listing configs.
@@ -115,8 +89,8 @@ func instanceInitFunc(_ *cobra.Command, args []string) error {
 	if err := config.SaveInstance(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
-	output.Success("Instance %q initialized", name)
-	output.Success("  Next: appa instance set-host %s user@host", name)
+	output.Success("Instance %q created", name)
+	output.Success("\tNext: appa instance set-host %s user@host", name)
 	return nil
 }
 
@@ -128,64 +102,7 @@ func instanceEditFunc(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
 
-	editor := os.Getenv("APPA_EDITOR")
-	if editor == "" {
-		editor = os.Getenv("EDITOR")
-	}
-	if editor == "" {
-		editor = "vim"
-	}
-
-	parts := strings.Fields(editor)
-	editorBin := parts[0]
-	editorArgs := parts[1:]
-
-	waitFlag, ok := guiEditors[editorBin]
-	if ok && !slices.Contains(editorArgs, waitFlag) {
-		editorArgs = append(editorArgs, waitFlag)
-	}
-
-	editorPath, err := exec.LookPath(editorBin)
-	if err != nil {
-		return fmt.Errorf("editor %q not found on PATH", editor)
-	}
-
-	path := config.PathFor(config.Instance, name)
-	output.Section("Waiting for your editor to close %q config file...", name)
-
-	cfg, err := config.LoadInstance(name)
-	if err != nil {
-		return err
-	}
-
-	for {
-		cmd := exec.Command(editorPath, append(editorArgs, path)...)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		if editorErr := cmd.Run(); editorErr != nil {
-			return fmt.Errorf("editor exited abnormally: %w", editorErr)
-		}
-
-		_, err = config.LoadInstance(name)
-		if err != nil {
-			if revertErr := config.SaveInstance(cfg); revertErr != nil {
-				return fmt.Errorf("failed to revert to original config: %w", revertErr)
-			}
-			output.Error("invalid configuration: %v\n", err)
-			fmt.Printf("Re-edit? [Y/n] ")
-			var reply string
-			fmt.Scanln(&reply)
-			if reply == "n" || reply == "N" {
-				return fmt.Errorf("edit aborted: config reverted to previous valid state")
-			}
-			continue
-		}
-
-		output.Success("Config %q updated", name)
-		return nil
-	}
+	return config.Edit(config.Instance, name)
 }
 
 // instanceSetHostFunc sets the SSH target for an instance and tests the connection.

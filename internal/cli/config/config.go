@@ -4,15 +4,27 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/theolujay/appa/internal/cli/output"
 )
 
-func ValidateName(s string) bool {
-	r, _ := regexp.Compile("^[a-zA-Z0-9_-]+$")
-	return r.MatchString(s)
+func ValidName(s string) bool {
+	return regexp.MustCompile("^[a-zA-Z0-9_-]+$").MatchString(s)
+}
+
+func AbsPath(p string) (string, error) {
+	return filepath.Abs(p)
+}
+
+func BasePath(p string) (string, error) {
+	path, err := AbsPath(p)
+	return filepath.Base(path), err
 }
 
 type InstanceConfig struct {
@@ -168,7 +180,7 @@ func ListProjects() ([]ProjectConfig, error) {
 }
 
 func InstanceExists(name string) bool {
-	if !ValidateName(name) {
+	if !ValidName(name) {
 		return false
 	}
 	_, err := os.Stat(PathFor(Instance, name))
@@ -176,9 +188,117 @@ func InstanceExists(name string) bool {
 }
 
 func ProjectExists(name string) bool {
-	if !ValidateName(name) {
+	if !ValidName(name) {
 		return false
 	}
 	_, err := os.Stat(PathFor(Project, name))
 	return err == nil
+}
+
+var guiEditors = map[string]string{
+	// Needs --wait
+	"code":          "--wait",
+	"code-insiders": "--wait",
+	"cursor":        "--wait",
+	"zed":           "--wait",
+	"atom":          "--wait",
+	"pulsar":        "--wait",
+	"bbedit":        "--wait",
+	"coteditor":     "--wait",
+	"mousepad":      "--wait",
+	"geany":         "--wait",
+	"notepadqq":     "--wait",
+	// Needs -w
+	"subl":              "-w",
+	"sublime_text":      "-w",
+	"gedit":             "-w",
+	"gnome-text-editor": "-w",
+	"mate":              "-w",
+	// Needs -f
+	"gvim": "-f",
+}
+
+func Edit(kind Kind, name string) error {
+
+	editor := os.Getenv("APPA_EDITOR")
+	if editor == "" {
+		editor = os.Getenv("EDITOR")
+	}
+	if editor == "" {
+		editor = "vim"
+	}
+
+	parts := strings.Fields(editor)
+	editorBin := parts[0]
+	editorArgs := parts[1:]
+
+	waitFlag, ok := guiEditors[editorBin]
+	if ok && !slices.Contains(editorArgs, waitFlag) {
+		editorArgs = append(editorArgs, waitFlag)
+	}
+
+	editorPath, err := exec.LookPath(editorBin)
+	if err != nil {
+		return fmt.Errorf("editor %q not found on PATH", editor)
+	}
+
+	path := PathFor(kind, name)
+	output.Section("Waiting for your editor to close %q config file...", name)
+
+	var instanceCfg InstanceConfig
+	var projectCfg ProjectConfig
+	switch kind {
+	case Instance:
+		instanceCfg, err = LoadInstance(name)
+		if err != nil {
+			return err
+		}
+	case Project:
+		projectCfg, err = LoadProject(name)
+		if err != nil {
+			return err
+		}
+	}
+
+	for {
+		cmd := exec.Command(editorPath, append(editorArgs, path)...)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		if editorErr := cmd.Run(); editorErr != nil {
+			return fmt.Errorf("editor exited abnormally: %w", editorErr)
+		}
+
+		switch kind {
+		case Instance:
+			_, err = LoadInstance(name)
+		case Project:
+			_, err = LoadProject(name)
+		}
+
+		if err != nil {
+			var rErr error
+			switch kind {
+			case Instance:
+				rErr = SaveInstance(instanceCfg)
+			case Project:
+				rErr = SaveProject(projectCfg)
+			}
+			if rErr != nil {
+				return fmt.Errorf("failed to revert changes to %s %s config: %w", name, string(kind), rErr)
+			}
+			output.Error("invalid configuration: %v\n", err)
+			fmt.Printf("Re-edit? [Y/n] ")
+			var reply string
+			fmt.Scanln(&reply)
+			if reply == "n" || reply == "N" {
+				return fmt.Errorf("edit aborted: config reverted to previous valid state")
+			}
+			continue
+		}
+
+		output.Success("Config %q updated", name)
+		return nil
+	}
 }

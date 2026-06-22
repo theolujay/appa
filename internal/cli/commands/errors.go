@@ -3,6 +3,7 @@ package commands
 import "errors"
 
 var (
+	errInvalidPath = errors.New("invalid path")
 	errInvalidName    = errors.New("invalid name")
 	errConfigNotFound = errors.New("config not found")
 	errDuplicateConfig  = errors.New("config already exists")
