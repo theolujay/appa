@@ -1,9 +1,10 @@
 # Appa
 
-[![Release](https://img.shields.io/github/v/release/theolujay/appa)](https://github.com/theolujay/appa/releases/latest)
+![GitHub Release](https://img.shields.io/github/v/release/theolujay/appa)
 [![Ansible Tests](https://github.com/theolujay/appa/actions/workflows/ansible-tests.yml/badge.svg)](https://github.com/theolujay/appa/actions/workflows/ansible-tests.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/theolujay/appa)](https://goreportcard.com/report/github.com/theolujay/appa)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+![GitHub License](https://img.shields.io/github/license/theolujay/appa)
+
 
 Appa is a self-hosted, CLI-native deployment platform. Bring your own VPS, connect your domain, and deploy apps without writing Dockerfiles or configuring web servers.
 

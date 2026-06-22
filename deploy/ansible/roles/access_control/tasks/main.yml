@@ -15,12 +15,12 @@
   ansible.builtin.user:
     name: "{{ deploy_user.name }}"
     groups: "{{ deploy_user.groups | join(',') }}"
-    append: yes
-    create_home: yes
+    append: true
+    create_home: true
     shell: /bin/bash
 
 - name: Install deploy user SSH key
-  ansible.builtin.authorized_key:
+  ansible.posix.authorized_key:
     user: "{{ deploy_user.name }}"
     key: "{{ item }}"
   loop: "{{ deploy_user.ssh_authorized_keys }}"
@@ -29,13 +29,13 @@
   ansible.builtin.user:
     name: "{{ operator_user.name }}"
     groups: "{{ operator_user.groups | join(',') }}"
-    append: yes
-    create_home: yes
+    append: true
+    create_home: true
     shell: /bin/bash
   when: operator_user.name | length > 0
 
 - name: Install operator SSH key
-  ansible.builtin.authorized_key:
+  ansible.posix.authorized_key:
     user: "{{ operator_user.name }}"
     key: "{{ item }}"
   loop: "{{ operator_user.ssh_authorized_keys }}"
