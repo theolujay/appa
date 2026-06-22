@@ -34,7 +34,7 @@ func NewApp() *cobra.Command {
 	rootCmd.AddCommand(commands.UpgradeCmd())
 
 	rootCmd.AddCommand(commands.ProjectCmd())
- 	rootCmd.AddCommand(commands.DeployCmd())
+	rootCmd.AddCommand(commands.DeployCmd())
 
 	return rootCmd
 }

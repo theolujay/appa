@@ -51,7 +51,6 @@ After saving, the file is validated. If invalid, you can re-edit or abort.`,
 	}
 }
 
-
 func projectInitFunc(args []string, target, name string) error {
 	var errs []error
 	source := args[0]
