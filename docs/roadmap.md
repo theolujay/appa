@@ -3,7 +3,9 @@
 This roadmap tracks delivery phases and future evolution. Architecture constraints
 and system design decisions live in [ARCHITECTURE.md](./architecture.md).
 
-## MVP (Complete)
+## v0.1.x — Foundation (Complete)
+
+### MVP
 
 - Self-hostable single-node platform stack with Docker Compose.
 - Go API, PostgreSQL, BuildKit, Caddy, and React dashboard.
@@ -17,113 +19,115 @@ and system design decisions live in [ARCHITECTURE.md](./architecture.md).
 - Persisted deployment records and historical logs.
 - Local development flow using `localhost` subdomains.
 
-## CLI & Remote Operations (Complete)
+### CLI & Remote Operations
 
-- Appa CLI (`cmd/cli/`) for remote instance management and provisioning.
-- Instance profiles in `~/.appa/instances/<name>/config.toml`.
-- SSH target configuration with identity file support (`--identity-file`).
-- Preflight checks for SSH access, OS, ports, DNS, Docker readiness,
-  and required operator inputs.
+- Appa CLI for remote instance management and provisioning.
+- Instance configs in `~/.appa/instances/<name>/config.toml`.
+- SSH target configuration with identity file support.
+- Preflight checks for SSH access, OS, ports, DNS, Docker readiness.
 - Remote setup through `appa setup <instance>`, backed by Ansible playbooks.
-- Idempotent `appa apply <instance>` for configuration changes after initial
-  setup.
-- Remote operations: `status`, `logs` (with service filter), `restart`,
-  and `upgrade` (with optional version pin).
-- Ansible hardening roles for UFW, SSH, access control, kernel parameters,
-  and auditd, with passing Molecule tests.
+- Idempotent `appa apply <instance>` for configuration changes.
+- Remote operations: `status`, `logs`, `restart`, `upgrade`.
+- Ansible hardening roles (UFW, SSH, access control, kernel, auditd) with Molecule tests.
 - Compliance-scan playbook for CIS-style checks.
 - CI workflow with lint + molecule matrix.
 - Makefile targets for build, run, lint, and test workflows.
+- Project CRUD (`init`, `edit`) with TOML config.
+- `appa deploy <project>` — rsync source shipping + API build pipeline.
+- `--quiet` flag for deploy output control.
 
-## Stability & Performance
+## v0.2.0 — Project Lifecycle & Environment Variables (Current)
 
-- Persistent build cache volumes so Railpack and BuildKit can skip redundant work.
-- CPU and memory limits per deployed container through the Docker API.
-- Reliability hardening across source acquisition, build, container startup, and
-  route registration.
-- Better cleanup for failed builds, failed containers, stale images, and stale
-  routes.
+### API
+
+- Add `project_name` to deployments table and create handler.
+- Single deployment lookup (`GET /v1/deployments/:id`).
+- Project-filtered deployment list (`GET /v1/deployments?project_name=X`).
+- Project env var CRUD (`GET/POST/DELETE /v1/projects/:name/env`).
+- Pipeline: merge project env vars into build step alongside deployment-specific vars.
+
+### CLI
+
+- `project logs <name>` — stream WebSocket logs from latest deployment.
+- `project stop <name>` — stop running or cancel pending deployment.
+- `project restart <name>` — stop + trigger new deployment.
+- `project env set/get/unset <name>` — environment var management through the API.
+- `deploy` now passes `project_name` in POST body.
+
+## v0.3.0 — Domain & TLS
+
+- `appa instance set-domain <name> <domain> [--cf-token]`.
+- Cloudflare API integration: DNS record creation, wildcard TLS via DNS-01.
+- Pre-build `caddy-cloudflare` image with `xcaddy` and push to GHCR.
+- Caddy TLS certificate verification.
+- Multi-provider DNS interface for future providers (Route53, DigitalOcean, Google Cloud DNS).
+
+## v0.3.1 — Docker Stack Migration
+
+- Ansible: swap Docker Compose → Docker Stack in deploy playbook.
+- Rollbacks by switching traffic back to a previously successful image tag.
+- Zero-downtime container swaps (health-check-aware blue/green via Caddy).
+- Stronger restart, update, and service-management semantics on single-node Swarm.
+
+## v0.4.0 — Observability
+
+- Integrated Prometheus and Grafana stack for platform and app monitoring.
+- Structured logs and basic metrics (build duration, failure rates, route registration latency, container health).
+- Persistent build cache volumes for Railpack and BuildKit.
+- Better cleanup for failed builds, failed containers, stale images, stale routes.
 - Health checks for platform services and deployed application containers.
 - Clearer deployment state transitions for retries and recovery.
+- CPU and memory limits per deployed container through the Docker API.
 
-## Operations & Scale
+## v0.5.0 — Revamped Dashboard
 
-- Ansible as the default remote provisioning engine for Appa Server instances.
-- Host provisioning roles for Docker, Compose, Appa Stack files, environment
-  rendering, firewall rules, and service lifecycle management.
-- Automated backups for Appa PostgreSQL data to S3-compatible storage.
-- Project-scoped backup and restore workflows for deployed applications.
-- Integrated Prometheus and Grafana stack for platform and app monitoring.
-- Structured logs and basic metrics for build duration, failure rates, route
-  registration latency, and container health.
-- Rollbacks by switching traffic back to a previously successful image tag.
-- Docker Stack support on a single-node Swarm for stronger production
-  orchestration while keeping the single-node operating model.
+- Dashboard UI rebuilt on top of all CLI/API features from v0.1.x–v0.4.0.
+- Full project lifecycle visibility, env var management, deployment history.
 
-## Advanced Networking
+## v0.6.0 — Authentication & Authorization
 
-- Production Caddy image built with `xcaddy` and the
-  `caddy-dns/cloudflare` plugin.
-- Wildcard TLS through DNS-01 challenges.
-- Multi-provider DNS support for Route53, DigitalOcean, Google Cloud DNS, and
-  other Caddy DNS plugins.
-- Basic horizontal scaling across multiple instances of one deployed app.
-- Load balancing and health-aware routing for scaled app instances.
+- Multi-user support with accounts.
+- GitHub sign-in integration.
+- CLI-native auth (sign-in, token management).
+- Role-based access for dashboard users (deploy, view, admin).
 
-## Future Evolution
+## Future
 
 ### DNS Provider Abstraction
 
-The first production target is Cloudflare because it gives Appa a practical
-zero-config path for wildcard TLS. The architecture should still keep DNS
-provider details behind a narrow interface so additional providers can be added
+Architecture should keep DNS provider details behind a narrow interface so
+additional providers (Route53, DigitalOcean, Google Cloud DNS) can be added
 without changing deployment routing or certificate lifecycle code.
 
-### Orchestration Path
+### Multi-Node Orchestration
 
-Docker Compose is the right starting point for Appa's self-hosted v1 because it
-keeps the install and mental model simple. The next step is Docker Stack on a
-single-node Swarm, which preserves most Compose semantics while adding stronger
-restart, update, and service-management behavior. Full multi-node operation is a
-long-term direction for users who need higher availability.
+Full multi-node operation is a long-term direction for users who need higher
+availability. Docker Stack on single-node Swarm (v0.3.1) is the intermediate step.
 
-### Project-Level CLI
+### Project-to-Instance Mapping
 
-The CLI provides a developer workflow surface for projects:
+One CLI managing personal, staging, and client Appa instances from a single
+config directory.
 
-- `appa deploy init <source>` for local project metadata with source path
-  and optional target instance mapping.
-- `appa deploy edit <name>` for editing project config.
-- `appa deploy <name>` for rsync-based source shipping and API-backed
-  deployment to the target Appa instance.
-- Project-level `logs`, `env`, `stop`, and `rollback` operations (planned).
-- Project-to-instance mappings so one CLI can manage personal, staging, and
-  client Appa instances.
+### Webhook Receiver
 
-### Development Tooling
+Generic endpoint accepting GitHub push events for push-to-deploy.
 
-A root `.mise.toml` should eventually pin Go and project tooling versions for
-contributors and CI. Railpack already uses Mise internally for application
-runtime installation; Appa only needs Mise for its own development environment.
+### Managed Add-Ons
 
-### Content-Addressable Sync Engine
-
-Currently, `appa deploy` uses rsync over SSH to ship source code to the
-instance. This works but depends on `rsync` being present on both machines
-and compares files by timestamp/size.
-
-A future improvement is a pure-Go content-addressable sync engine over SSH:
-- CLI generates a SHA-256 manifest of the project source.
-- A server-side `appa-agent` diffs the manifest against a content-addressable
-  cache and returns only missing hashes.
-- The CLI streams a compressed archive of only missing files over SSH.
-- The agent assembles the full workspace from cache and streamed files.
-
-See [cas-sync.md](./cas-sync.md) for the design research.
+Managed PostgreSQL and Redis for user applications. Automated PostgreSQL
+backups to S3-compatible storage.
 
 ### Encrypted Instance Profiles
 
-Currently, the CLI stores instance profiles in plaintext within `~/.appa/instances/<name>/config.toml`. To prevent unauthorized access to sensitive remote server details, SSH configurations, database credentials, and operator keys on the operator's machine, we plan to:
-- Integrate Ansible Vault-compatible encryption directly into the Appa CLI.
-- Securely encrypt the instance config profiles using a vault password (provided via terminal prompt, environment variable, or key file).
-- Allow operators to safely store, version control, or share profile configurations without exposing passwords, database credentials, or SSH private keys.
+Ansible Vault-compatible encryption for `~/.appa/instances/<name>/config.toml`
+to safely store, version control, or share profile configurations.
+
+### Content-Addressable Sync Engine
+
+A pure-Go CAS engine over SSH as a future replacement for rsync-based source
+shipping. See [cas-sync.md](./cas-sync.md) for the design research.
+
+### Development Tooling
+
+A root `.mise.toml` to pin Go and project tooling versions for contributors and CI.
