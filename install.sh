@@ -292,13 +292,13 @@ if has uv; then
   APPA_ANSIBLE_DIR="${HOME}/.appa/ansible"
   mkdir -p "$APPA_ANSIBLE_DIR"
 
-  spin_start "Creating Python venv..."
-  uv venv "$APPA_ANSIBLE_DIR/.venv" 2>/dev/null
-  spin_stop
+  info "Creating Python venv (3.12)..."
+  uv venv --python 3.12 --clear "$APPA_ANSIBLE_DIR/.venv"
+  completed "Python venv created"
 
-  spin_start "Installing Ansible..."
-  uv pip install 'ansible>=14.0.0' 2>/dev/null
-  spin_stop
+  export VIRTUAL_ENV="$APPA_ANSIBLE_DIR/.venv"
+  info "Installing Ansible..."
+  uv pip install 'ansible>=14.0.0'
   completed "Ansible installed"
 
   info "  Appa will manage this venv at ~/.appa/ansible/.venv/"
