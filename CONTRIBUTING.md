@@ -224,6 +224,7 @@ appa server init <name>                # Create a local server profile
 appa server edit <name>                # Open profile in $EDITOR, validates on save
 appa server set-host <name> <target>   # Set SSH target, e.g. root@203.0.113.10
   -i, --identity-file <path>           # SSH private key for this server
+  --port <port>                        # API port (e.g. 8080 for Vagrant forwarded port)
 appa server ls                         # List known Appa servers
 appa preflight <name>                  # Validate SSH, OS, ports, DNS, and inputs
   --no-tty                             # Non-interactive mode (plain text output)
@@ -266,6 +267,8 @@ smtp_host = ""
 smtp_port = 587
 smtp_username = ""
 smtp_password = ""
+api_base_url = ""
+api_port = 0
 ```
 
 **Target format** for `set-host`: `user@host` or `user@host:port` (e.g. `root@203.0.113.10` or `root@203.0.113.10:2222`).

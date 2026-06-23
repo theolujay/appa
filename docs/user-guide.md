@@ -86,8 +86,9 @@ connection before saving.
 Flags:
 
 | Flag | Description |
-|---|---|
+|---|---|---|
 | `-i`, `--identity-file` | Path to your SSH private key |
+| `--port` | API port override (e.g. `8080` for Vagrant forwarded port; default 80) |
 | `--skip-verify` | Skip host key verification (e.g. for ephemeral VMs) |
 
 ### 3. Run preflight checks
@@ -119,7 +120,7 @@ This is the big one. Setup does all of the following automatically:
    `operator` user (your username, for manual SSH), each with your SSH key.
 3. **Installs Docker** — Docker Engine and Compose plugin.
 4. **Deploys the Appa Stack** — pulls container images for the API, database,
-   BuildKit, Caddy, and the web UI, then starts everything via Docker Compose.
+   BuildKit, Caddy, and the web UI, then starts everything via Docker Stack.
 5. **Waits for health** — polls the API health endpoint until it responds.
 
 After setup, subsequent SSH operations use the `deploy` user (never `root`).
@@ -154,7 +155,7 @@ ssh_identity_file = "/home/you/.ssh/id_ed25519"
 skip_ssh_verify = false
 operator_user_name = "jane"
 setup_done = true
-base_api_url = "http://203.0.113.10"
+api_base_url = "http://203.0.113.10"
 ```
 
 | Field | Description |
@@ -170,7 +171,8 @@ base_api_url = "http://203.0.113.10"
 | `cloudflare_token` | Cloudflare API token (optional — for automatic wildcard TLS) |
 | `smtp_*` | SMTP credentials (optional — for email notifications) |
 | `setup_done` | Whether `appa setup` has completed |
-| `base_api_url` | API base URL (set automatically after setup) |
+| `api_base_url` | API base URL (set automatically after setup) |
+| `api_port` | API port override (e.g. `8080` for Vagrant forwarded port; default 80) |
 
 The quickest way to edit a server config is:
 
@@ -394,6 +396,7 @@ Set the SSH target for a server.
 | Flag | Description |
 |---|---|
 | `-i`, `--identity-file` | Path to SSH private key |
+| `--port` | API port override (e.g. `8080` for Vagrant forwarded port; default 80) |
 | `--skip-verify` | Skip host key verification |
 
 ---

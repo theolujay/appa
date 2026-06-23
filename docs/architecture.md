@@ -38,7 +38,7 @@ Operator Machine
         │ SSH + Ansible
         ▼
 Remote VPS / Appa Server
-  └── Appa Stack (Docker Compose services + generated config)
+  └── Appa Stack (Docker Stack services + generated config)
         │
         ▼
 Browser → [ React Dashboard ] → [ Caddy Gateway ]
@@ -127,7 +127,7 @@ Progressive configuration: SSH target first, then domain, Cloudflare, SMTP, etc.
 8. Logs persisted before WebSocket publication.
 9. Uploaded archives extracted into isolated per-upload directories.
 10. Platform and user workloads share a network, not a process.
-11. CLI ships source to the instance via rsync; the API remains the sole
+11. CLI ships source to the server via rsync; the API remains the sole
     deployment authority — all builds, container lifecycle, and route
     management happen server-side.
 12. `setup`/`apply` are idempotent.
@@ -156,9 +156,9 @@ Progressive configuration: SSH target first, then domain, Cloudflare, SMTP, etc.
 - **WebSocket hub pattern** — Single goroutine for registration/broadcast; DB as durable store.
 - **Wildcard TLS via DNS-01** — HTTP-01 doesn't support wildcards; Cloudflare + caddy-dns plugin.
 - **CLI-managed provisioning** — CLI owns profiles/preflight/Ansible gen; Ansible owns host mutations; API owns deployments.
-- **Ansible Vault for Local Secrets** (Planned) — Instance profiles and operator configuration (including passwords, tokens, and SSH keys) are encrypted on the operator's disk using Ansible Vault to protect secrets at rest.
+- **Ansible Vault for Local Secrets** (Planned) — Server profiles and operator configuration (including passwords, tokens, and SSH keys) are encrypted on the operator's disk using Ansible Vault to protect secrets at rest.
 - **rsync for source shipping** — `appa deploy` uses rsync over SSH to transfer
-  source files to the instance. It relies on system `rsync` on both ends but
+  source files to the server. It relies on system `rsync` on both ends but
   requires no new infrastructure. A pure-Go content-addressable replacement
   is researched in [cas-sync.md](./cas-sync.md) for future consideration.
 - **Content-Addressable Sync** (Future) — A CAS engine over SSH using SHA-256
