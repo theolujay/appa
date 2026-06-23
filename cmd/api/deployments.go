@@ -17,8 +17,9 @@ func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.R
 	user := app.contextGetUser(r)
 
 	var p struct {
-		Source  string `json:"source"`
-		EnvVars string `json:"env_vars"`
+		Source      string `json:"source"`
+		EnvVars     string `json:"env_vars"`
+		ProjectName string `json:"project_name"`
 	}
 	err := app.readJSON(w, r, &p)
 	if err != nil {
@@ -27,8 +28,9 @@ func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.R
 	}
 
 	d := da.Deployment{
-		Source:  p.Source,
-		EnvVars: &p.EnvVars,
+		Source:      p.Source,
+		EnvVars:     &p.EnvVars,
+		ProjectName: p.ProjectName,
 	}
 
 	if !user.IsAnonymous() {
@@ -158,7 +160,7 @@ func unzip(r io.ReaderAt, size int64, dest string) error {
 	return nil
 }
 
-func (app *application) cancelDeploymentHandler(w http.ResponseWriter, r *http.Request) {
+func (app *application) stopDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 	user := app.contextGetUser(r)
 
 	id, err := app.readIDParam(r)
@@ -190,24 +192,115 @@ func (app *application) cancelDeploymentHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if err := app.pipeline.Cancel(d.ID); err != nil {
+	app.background(func() {
+		if err := app.pipeline.Stop(d.ID); err != nil {
+			app.logger.Error("stop deployment failed", "error", err)
+		}
+	})
+
+	err = app.writeJSON(w, http.StatusAccepted, envelope{"message": "stopping deployment"}, nil)
+	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
 	}
+}
 
+func (app *application) restartDeploymentHandler(w http.ResponseWriter, r *http.Request) {
+	user := app.contextGetUser(r)
+
+	id, err := app.readIDParam(r)
+
+	if err != nil || id < 1 {
+		switch {
+		case errors.Is(err, ErrParamInvalid):
+			err = fmt.Errorf("%w: ID", err)
+			app.badRequestResponse(w, r, err)
+		default:
+			app.notFoundResponse(w, r)
+		}
+		return
+	}
+
+	d, err := app.models.Deployments.Get(id)
+	if err != nil {
+		switch {
+		case errors.Is(err, da.ErrRecordNotFound):
+			app.notFoundResponse(w, r)
+		default:
+			app.serverErrorResponse(w, r, err)
+		}
+		return
+	}
+
+	if d.UserID != nil && *d.UserID != user.ID {
+		app.notPermittedResponse(w, r)
+		return
+	}
+
+	app.background(func() {
+		if err := app.pipeline.Restart(d.ID); err != nil {
+			app.logger.Error("restart deployment failed", "error", err)
+		}
+	})
+
+	err = app.writeJSON(w, http.StatusAccepted, envelope{"message": "restarting deployment"}, nil)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
+}
+
+func (app *application) getDeploymentHandler(w http.ResponseWriter, r *http.Request) {
+	user := app.contextGetUser(r)
+
+	id, err := app.readIDParam(r)
+	if err != nil || id < 1 {
+		switch {
+		case errors.Is(err, ErrParamInvalid):
+			err = fmt.Errorf("%w: ID", err)
+			app.badRequestResponse(w, r, err)
+		default:
+			app.notFoundResponse(w, r)
+		}
+		return
+	}
+
+	d, err := app.models.Deployments.Get(id)
+	if err != nil {
+		switch {
+		case errors.Is(err, da.ErrRecordNotFound):
+			app.notFoundResponse(w, r)
+		default:
+			app.serverErrorResponse(w, r, err)
+		}
+		return
+	}
+
+	if d.UserID != nil && *d.UserID != user.ID {
+		app.notPermittedResponse(w, r)
+		return
+	}
+
+	err = app.writeJSON(w, http.StatusOK, envelope{"deployment": d}, nil)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
 }
 
 func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Request) {
 	user := app.contextGetUser(r)
 
 	var q struct {
-		Status string
+		Status  string
+		Project string
 		da.Filters
 	}
 
 	qs := r.URL.Query()
 
 	q.Status = app.readString(qs, "status", "")
+	q.Project = app.readString(qs, "project", "")
 
 	var errs []error
 	page, err := app.readInt(qs, "page", 1)
@@ -222,7 +315,7 @@ func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Re
 	q.Filters.Page = page
 	q.Filters.PageSize = pageSize
 	q.Filters.Sort = app.readString(qs, "sort", "id")
-	q.Filters.SortSafelist = []string{"id", "status"}
+	q.Filters.SortSafelist = []string{"id", "status", "-id", "-status"}
 
 	err = da.ValidateFilters(q.Filters)
 	if err != nil {
@@ -235,7 +328,7 @@ func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	d, m, err := app.models.Deployments.GetAllForUser(user.ID, q.Status, q.Filters)
+	d, m, err := app.models.Deployments.GetAllForUser(user.ID, q.Status, q.Project, q.Filters)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return

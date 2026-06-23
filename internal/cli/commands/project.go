@@ -1,12 +1,16 @@
 package commands
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 
+	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 	"github.com/theolujay/appa/internal/cli/config"
 	"github.com/theolujay/appa/internal/cli/output"
+	"github.com/theolujay/appa/internal/cli/tui"
 )
 
 func ProjectCmd() *cobra.Command {
@@ -17,7 +21,199 @@ func ProjectCmd() *cobra.Command {
 
 	cmd.AddCommand(projectInitCmd())
 	cmd.AddCommand(projectEditCmd())
+	cmd.AddCommand(projectLogsCmd())
+	cmd.AddCommand(projectStopCmd())
+	cmd.AddCommand(projectRestartCmd())
 	return cmd
+}
+
+func projectLogsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "logs [name]",
+		Short: "Stream deployment logs for a project",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var name string
+			if len(args) > 0 {
+				name = args[0]
+			}
+			if name == "" {
+				if err := promptProjectName(&name, "view logs"); err != nil {
+					return err
+				}
+			}
+			return projectLogsFunc(cmd, []string{name})
+		},
+	}
+}
+
+func projectStopCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "stop [name]",
+		Short: "Stop the latest deployment for a project",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var name string
+			if len(args) > 0 {
+				name = args[0]
+			}
+			if name == "" {
+				if err := promptProjectName(&name, "stop"); err != nil {
+					return err
+				}
+			}
+			return projectStopFunc(cmd, []string{name})
+		},
+	}
+}
+
+func projectRestartCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "restart [name]",
+		Short: "Restart the latest deployment for a project",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var name string
+			if len(args) > 0 {
+				name = args[0]
+			}
+			if name == "" {
+				if err := promptProjectName(&name, "restart"); err != nil {
+					return err
+				}
+			}
+			return projectRestartFunc(cmd, []string{name})
+		},
+	}
+}
+
+func promptProjectName(name *string, action string) error {
+	cfgs, err := config.ListProjects()
+	if err != nil {
+		return err
+	}
+	if len(cfgs) == 0 {
+		return fmt.Errorf("no projects found, run 'appa project init' first")
+	}
+	options := make([]huh.Option[string], len(cfgs))
+	for i, cfg := range cfgs {
+		options[i] = huh.NewOption(cfg.Name, cfg.Name)
+	}
+	return huh.NewSelect[string]().
+		Title(fmt.Sprintf("Select a project to %s:", action)).
+		Options(options...).
+		Value(name).
+		Run()
+}
+
+func getLatestDeployment(name string) (int64, string, error) {
+	if !config.ProjectExists(name) {
+		return 0, "", fmt.Errorf("project %q doesn't exist", name)
+	}
+
+	pCfg, err := config.LoadProject(name)
+	if err != nil {
+		return 0, "", fmt.Errorf("load project: %w", err)
+	}
+	if pCfg.Target == "" {
+		return 0, "", fmt.Errorf("target not set: use 'appa project edit %s'", name)
+	}
+
+	iCfg, err := config.LoadInstance(pCfg.Target)
+	if err != nil {
+		return 0, "", fmt.Errorf("load instance %q: %w", pCfg.Target, err)
+	}
+	if !iCfg.SetupDone {
+		return 0, "", fmt.Errorf("instance %q has not been set up", pCfg.Target)
+	}
+	if iCfg.BaseAPIURL == "" {
+		return 0, "", fmt.Errorf("instance %q has no API URL", pCfg.Target)
+	}
+
+	apiURL := iCfg.BaseAPIURL
+	url := fmt.Sprintf("%s/v1/deployments?project=%s&sort=-id&page_size=1", apiURL, name)
+	resp, err := http.Get(url)
+	if err != nil {
+		return 0, "", fmt.Errorf("api call failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, "", fmt.Errorf("api returned status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Deployments []struct {
+			ID int64 `json:"id"`
+		} `json:"deployments"`
+	}
+	if err = json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, "", fmt.Errorf("decode response: %w", err)
+	}
+	if len(result.Deployments) == 0 {
+		return 0, "", fmt.Errorf("no deployments found for project %q", name)
+	}
+
+	return result.Deployments[0].ID, apiURL, nil
+}
+
+func projectLogsFunc(_ *cobra.Command, args []string) error {
+	name := args[0]
+	deploymentID, apiURL, err := getLatestDeployment(name)
+	if err != nil {
+		return err
+	}
+	return tui.Run(tui.NewLogViewer(apiURL, deploymentID))
+}
+
+func projectStopFunc(_ *cobra.Command, args []string) error {
+	name := args[0]
+	deploymentID, apiURL, err := getLatestDeployment(name)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/v1/deployments/%d/stop", apiURL, deploymentID), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("api call failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("api returned status %d", resp.StatusCode)
+	}
+
+	output.Success("Project %q stopped (deployment %d)", name, deploymentID)
+	return nil
+}
+
+func projectRestartFunc(_ *cobra.Command, args []string) error {
+	name := args[0]
+	deploymentID, apiURL, err := getLatestDeployment(name)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/v1/deployments/%d/restart", apiURL, deploymentID), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("api call failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("api returned status %d", resp.StatusCode)
+	}
+
+	output.Success("Project %q restarted (deployment %d)", name, deploymentID)
+	return nil
 }
 
 func projectInitCmd() *cobra.Command {
@@ -25,11 +221,25 @@ func projectInitCmd() *cobra.Command {
 	var name string
 
 	cmd := &cobra.Command{
-		Use:   "init <source>",
+		Use:   "init [source]",
 		Short: "Create a new project",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return projectInitFunc(args, target, name)
+			var source string
+			if len(args) > 0 {
+				source = args[0]
+			}
+			if source == "" {
+				err := huh.NewInput().
+					Title("What is the source directory?").
+					Placeholder("e.g. . or ./my-app").
+					Value(&source).
+					Run()
+				if err != nil {
+					return err
+				}
+			}
+			return projectInitFunc([]string{source}, target, name)
 		},
 	}
 	cmd.Flags().StringVarP(&target, "target", "t", "", "Target instance name")
@@ -40,14 +250,25 @@ func projectInitCmd() *cobra.Command {
 
 func projectEditCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "edit <name>",
+		Use:   "edit [name]",
 		Short: "Edit project config in $EDITOR",
 		Long: `Opens the project config in the system editor for direct TOML editing.
 
 The editor is chosen from $APPA_EDITOR, $EDITOR, or defaults to "vi".
 After saving, the file is validated. If invalid, you can re-edit or abort.`,
-		Args: cobra.ExactArgs(1),
-		RunE: projectEditFunc,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var name string
+			if len(args) > 0 {
+				name = args[0]
+			}
+			if name == "" {
+				if err := promptProjectName(&name, "edit"); err != nil {
+					return err
+				}
+			}
+			return projectEditFunc(cmd, []string{name})
+		},
 	}
 }
 

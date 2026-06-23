@@ -22,7 +22,9 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodGet, "/v1/deployments", app.listDeploymentsHandler)
 	router.HandlerFunc(http.MethodPost, "/v1/deployments", app.createDeploymentHandler)
 	router.HandlerFunc(http.MethodPost, "/v1/deployments/upload", app.uploadProjectHandler)
-	router.HandlerFunc(http.MethodPatch, "/v1/deployments/:id", app.cancelDeploymentHandler)
+	router.HandlerFunc(http.MethodGet, "/v1/deployments/:id", app.getDeploymentHandler)
+	router.HandlerFunc(http.MethodPut, "/v1/deployments/:id/stop", app.stopDeploymentHandler)
+	router.HandlerFunc(http.MethodPut, "/v1/deployments/:id/restart", app.restartDeploymentHandler)
 	router.HandlerFunc(http.MethodGet, "/v1/deployments/:id/logs", app.streamLogsHandler)
 
 	router.Handler(http.MethodGet, "/debug/vars", expvar.Handler())

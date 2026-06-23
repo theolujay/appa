@@ -12,6 +12,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/theolujay/appa/internal/cli/output"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 func ValidName(s string) bool {
@@ -349,7 +351,11 @@ func Edit(kind Kind, name string) error {
 			continue
 		}
 
-		output.Success("Config %q updated", name)
+		output.Success(
+			"%s config %q updated",
+			cases.Title(language.English).String(string(kind)),
+			name,
+		)
 		return nil
 	}
 }

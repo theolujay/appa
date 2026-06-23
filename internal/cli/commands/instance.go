@@ -5,6 +5,7 @@ import (
 	"os/user"
 	"strings"
 
+	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 	"github.com/theolujay/appa/internal/cli/config"
 	"github.com/theolujay/appa/internal/cli/output"
@@ -23,6 +24,13 @@ func InstanceCmd() *cobra.Command {
 	cmd.AddCommand(instanceEditCmd())
 	cmd.AddCommand(instanceSetHostCmd())
 	cmd.AddCommand(instanceListCmd())
+	cmd.AddCommand(PreflightCmd())
+	cmd.AddCommand(SetupCmd())
+	cmd.AddCommand(ApplyCmd())
+	cmd.AddCommand(StatusCmd())
+	cmd.AddCommand(LogsCmd())
+	cmd.AddCommand(RestartCmd())
+	cmd.AddCommand(UpgradeCmd())
 
 	return cmd
 }
@@ -31,11 +39,34 @@ func instanceInitCmd() *cobra.Command {
 	var opName string
 
 	cmd := &cobra.Command{
-		Use:   "init <name>",
+		Use:   "init [name]",
 		Short: "Create a new instance",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return instanceInitFunc(args, opName)
+			var name string
+			if len(args) > 0 {
+				name = args[0]
+			}
+			if name == "" {
+				err := huh.NewInput().
+					Title("What do you want to name this instance?").
+					Placeholder("e.g. personal").
+					Value(&name).
+					Validate(func(s string) error {
+						if strings.TrimSpace(s) == "" {
+							return fmt.Errorf("name cannot be empty")
+						}
+						if config.InstanceExists(s) {
+							return fmt.Errorf("instance %q already exists", s)
+						}
+						return nil
+					}).
+					Run()
+				if err != nil {
+					return err
+				}
+			}
+			return instanceInitFunc([]string{name}, opName)
 		},
 	}
 
@@ -60,11 +91,62 @@ func instanceSetHostCmd() *cobra.Command {
 	var identityFile string
 	var skipVerify bool
 	cmd := &cobra.Command{
-		Use:   "set-host <name> <target>",
+		Use:   "set-host [name] [target]",
 		Short: "Set SSH target for an instance config",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.MaximumNArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return instanceSetHostFunc(args, identityFile, skipVerify)
+			var name, target string
+			if len(args) > 0 {
+				name = args[0]
+			}
+			if len(args) > 1 {
+				target = args[1]
+			}
+
+			if name == "" || target == "" {
+				var fields []huh.Field
+
+				if name == "" {
+					cfgs, err := config.ListInstances()
+					if err != nil {
+						return err
+					}
+					if len(cfgs) == 0 {
+						return fmt.Errorf("no instances found, run 'appa instance init' first")
+					}
+					options := []huh.Option[string]{}
+					for _, cfg := range cfgs {
+						options = append(options, huh.NewOption(cfg.Name, cfg.Name))
+					}
+					fields = append(fields, huh.NewSelect[string]().
+						Title("Select an instance:").
+						Options(options...).
+						Value(&name))
+				}
+
+				if target == "" {
+					fields = append(fields, huh.NewInput().
+						Title("What is the SSH target?").
+						Placeholder("root@203.0.113.10").
+						Value(&target).
+						Validate(func(s string) error {
+							if strings.TrimSpace(s) == "" {
+								return fmt.Errorf("target cannot be empty")
+							}
+							if _, _, _, err := parseTarget(s); err != nil {
+								return fmt.Errorf("invalid format, use user@host or user@host:port")
+							}
+							return nil
+						}))
+				}
+
+				err := huh.NewForm(huh.NewGroup(fields...)).Run()
+				if err != nil {
+					return err
+				}
+			}
+
+			return instanceSetHostFunc([]string{name, target}, identityFile, skipVerify)
 		},
 	}
 	cmd.Flags().StringVarP(
@@ -78,7 +160,7 @@ func instanceSetHostCmd() *cobra.Command {
 
 func instanceListCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
+		Use:   "ls",
 		Short: "List all instances",
 		Args:  cobra.NoArgs,
 		RunE:  instanceListFunc,
@@ -174,25 +256,27 @@ func instanceListFunc(_ *cobra.Command, _ []string) error {
 		return err
 	}
 	if len(cfgs) == 0 {
-		fmt.Println("No instance found.")
-		fmt.Println("  Create one: appa instance init <name>")
+		output.Warn("No instance found.")
+		output.Success("Create one: appa instance init <name>")
 		return nil
 	}
 	var rows [][]string
+	var dimmed []bool
 	for _, p := range cfgs {
 		host := p.SSHHost
+		status := "pending"
+		dim := true
 		if host == "" {
 			host = "-"
-		}
-		status := "pending"
-		if p.SetupDone {
+		} else if p.SetupDone {
 			status = "done"
-		} else if p.SSHHost != "" {
-			status = "host set"
+			dim = false
 		}
+
 		rows = append(rows, []string{p.Name, host, status})
+		dimmed = append(dimmed, dim)
 	}
-	output.PrintTable([]string{"Name", "Host", "Status"}, rows)
+	output.PrintTable([]string{"Name", "Host", "Status"}, rows, dimmed)
 	return nil
 }
 

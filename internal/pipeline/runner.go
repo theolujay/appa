@@ -30,11 +30,6 @@ func (p *Pipeline) startContainer(ctx context.Context, id int64) (string, error)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	hPort, err := getPort()
-	if err != nil {
-		return "", fmt.Errorf("%w: %w", errDeployFailed, err)
-	}
-
 	res, err := p.dockerClient.ImageInspect(ctx, *d.ImageTag)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", errDeployFailed, err)
@@ -114,7 +109,7 @@ func (p *Pipeline) startContainer(ctx context.Context, id int64) (string, error)
 	}
 
 	if !healthy {
-		return "", fmt.Errorf("%w: container did not respond on port %d: %w", errDeployFailed, hPort, errContainerNotReady)
+		return "", fmt.Errorf("%w: container did not become ready on %s: %w", errDeployFailed, addr, errContainerNotReady)
 	}
 
 	go func() {
@@ -188,6 +183,16 @@ func (p *Pipeline) stopContainer(dc *pipelineCtx) {
 	if err != nil {
 		dc.err = fmt.Errorf("%w: %w", errRoutingFailed, err)
 	}
+}
+
+// restartContainer restarts an already built and created container, sets up log streaming, and waits for it to be healthy.
+func (p *Pipeline) restartContainer(ctx context.Context, id int64) (string, error) {
+	cName := fmt.Sprintf("appa-%d", id)
+	_, err := p.dockerClient.ContainerRemove(ctx, cName, client.ContainerRemoveOptions{Force: true})
+	if err != nil && !cerrdefs.IsNotFound(err) {
+		return "", fmt.Errorf("%w: remove old container: %w", errDeployFailed, err)
+	}
+	return p.startContainer(ctx, id)
 }
 
 // getPort finds and returns an available TCP port by binding to port 0 on localhost.

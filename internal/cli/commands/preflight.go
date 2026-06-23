@@ -6,10 +6,11 @@ import (
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 	"github.com/theolujay/appa/internal/cli/config"
-	"github.com/theolujay/appa/internal/cli/output"
 	"github.com/theolujay/appa/internal/cli/ssh"
+	"github.com/theolujay/appa/internal/cli/tui"
 )
 
 func PreflightCmd() *cobra.Command {
@@ -44,12 +45,6 @@ func preflightFunc(_ *cobra.Command, args []string, skipVerify bool) error {
 		return fmt.Errorf("no SSH target set for %q; run 'appa instance set-host %s user@host': %w", name, name, errNoSSHTarget)
 	}
 
-	output.Section("Preflight Checks for %q", name)
-	failures := 0
-	warnings := 0
-
-	output.Check("Instance exists", true)
-
 	clientConfig := ssh.Client{
 		User:         p.SSHUser,
 		Host:         p.SSHHost,
@@ -58,84 +53,105 @@ func preflightFunc(_ *cobra.Command, args []string, skipVerify bool) error {
 		SkipVerify:   skipVerify || p.SSHSkipVerify,
 	}
 
-	fmt.Printf("  Checking SSH connectivity to %s...\n", ssh.Target(p.SSHUser, p.SSHHost, p.SSHPort))
-	if err := clientConfig.TestConnect(); err != nil {
-		output.Check("SSH reachable", false)
-		failures++
-	} else {
-		output.Check("SSH reachable", true)
+	checks := []tui.Check{
+		{
+			Label: "Instance exists",
+			Fn: func() (bool, string, bool) {
+				return true, "", false
+			},
+		},
+		{
+			Label: "SSH reachable",
+			Fn: func() (bool, string, bool) {
+				err := clientConfig.TestConnect()
+				if err != nil {
+					return false, err.Error(), false
+				}
+				return true, "", false
+			},
+		},
+		{
+			Label: "OS supported (Ubuntu)",
+			Fn: func() (bool, string, bool) {
+				out, err := ssh.RunCommand(clientConfig, "cat /etc/os-release 2>/dev/null | grep -i ^ID=")
+				if err != nil || !strings.Contains(strings.ToLower(out), "ubuntu") {
+					return false, "", false
+				}
+				return true, "", false
+			},
+		},
+		{
+			Label: "Required ports reachable (22, 80, 443)",
+			Fn: func() (bool, string, bool) {
+				ports := []int{22, 80, 443}
+				for _, port := range ports {
+					conn, err := net.DialTimeout("tcp", net.JoinHostPort(p.SSHHost, fmt.Sprintf("%d", port)), 3*time.Second)
+					if err != nil {
+						return true, fmt.Sprintf("Port %d not reachable from here", port), true
+					}
+					conn.Close()
+				}
+				return true, "", false
+			},
+		},
+		{
+			Label: "Domain resolves to instance IP",
+			Fn: func() (bool, string, bool) {
+				if p.Domain == "" {
+					return true, "No domain configured", true
+				}
+				ip, _ := ssh.ResolveIP(p.SSHHost)
+				domainIP, err := net.LookupHost(p.Domain)
+				if err != nil {
+					return true, fmt.Sprintf("Domain %q does not resolve", p.Domain), true
+				} else if ip != "" && domainIP[0] != ip {
+					return true, fmt.Sprintf("Resolves to %s, not %s", domainIP[0], ip), true
+				}
+				return true, "", false
+			},
+		},
+		{
+			Label: "Docker not already installed (clean host)",
+			Fn: func() (bool, string, bool) {
+				out, _ := ssh.RunCommand(clientConfig, "which docker 2>/dev/null && docker --version 2>/dev/null || echo 'not found'")
+				if strings.Contains(out, "not found") {
+					return true, "", false
+				}
+				return true, strings.TrimSpace(out), true
+			},
+		},
+		{
+			Label: "Cloudflare API token set",
+			Fn: func() (bool, string, bool) {
+				if p.CloudflareToken == "" {
+					return true, "Token not set (needed for wildcard TLS)", true
+				}
+				return true, "", false
+			},
+		},
+		{
+			Label: "SMTP configured",
+			Fn: func() (bool, string, bool) {
+				if p.SMTPHost == "" {
+					return true, "SMTP not configured", true
+				}
+				return true, "", false
+			},
+		},
 	}
 
-	fmt.Print("  Checking OS compatibility...\n")
-	out, err := ssh.RunCommand(clientConfig, "cat /etc/os-release 2>/dev/null | grep -i ^ID=")
-	if err != nil || !strings.Contains(strings.ToLower(out), "ubuntu") {
-		output.Check("OS supported (Ubuntu)", false)
-		failures++
-	} else {
-		output.Check("OS supported (Ubuntu)", true)
+	model := tui.NewPreflightModel(checks)
+	pProg := tea.NewProgram(model)
+	m, err := pProg.Run()
+	if err != nil {
+		return fmt.Errorf("error running preflight TUI: %w", err)
 	}
 
-	fmt.Print("  Checking required ports...\n")
-	ports := []int{22, 80, 443}
-	allOpen := true
-	for _, port := range ports {
-		conn, err := net.DialTimeout("tcp", net.JoinHostPort(p.SSHHost, fmt.Sprintf("%d", port)), 3*time.Second)
-		if err != nil {
-			allOpen = false
-			output.Warn(fmt.Sprintf("Port %d not reachable from here", port))
-			warnings++
-		} else {
-			conn.Close()
+	if pm, ok := m.(*tui.PreflightModel); ok {
+		if pm.Failures > 0 {
+			return fmt.Errorf("preflight failed")
 		}
 	}
-	if allOpen {
-		output.Check("Required ports reachable (22, 80, 443)", true)
-	}
 
-	ip, _ := ssh.ResolveIP(p.SSHHost)
-	if p.Domain != "" {
-		domainIP, err := net.LookupHost(p.Domain)
-		if err != nil {
-			output.Warn(fmt.Sprintf("Domain %q does not resolve", p.Domain))
-			warnings++
-		} else if ip != "" && domainIP[0] != ip {
-			output.Warn(fmt.Sprintf("Domain %q resolves to %s, not instance IP %s", p.Domain, domainIP[0], ip))
-			warnings++
-		} else {
-			output.Check(fmt.Sprintf("Domain %q resolves to instance IP", p.Domain), true)
-		}
-	}
-
-	fmt.Print("  Checking for existing Docker...\n")
-	out, _ = ssh.RunCommand(clientConfig, "which docker 2>/dev/null && docker --version 2>/dev/null || echo 'not found'")
-	if strings.Contains(out, "not found") {
-		output.Check("Docker not installed (clean host)", true)
-	} else {
-		output.Warn(fmt.Sprintf("Docker already installed: %s", strings.TrimSpace(out)))
-		warnings++
-	}
-
-	if p.CloudflareToken == "" {
-		output.Warn("Cloudflare API token not set (needed for wildcard TLS)")
-		warnings++
-	} else {
-		output.Check("Cloudflare API token set", true)
-	}
-	if p.SMTPHost == "" {
-		output.Warn("SMTP not configured (needed for email notifications)")
-		warnings++
-	} else {
-		output.Check("SMTP configured", true)
-	}
-
-	fmt.Println()
-	if failures > 0 {
-		output.Error("%d failure(s), %d warning(s)", failures, warnings)
-		return fmt.Errorf("preflight failed")
-	} else if warnings > 0 {
-		output.Success("All critical checks passed (%d warning(s))", warnings)
-	} else {
-		output.Success("All checks passed")
-	}
 	return nil
 }

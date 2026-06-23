@@ -91,9 +91,11 @@ func deployFunc(args []string, quiet bool) error {
 
 	output.Section("Triggering deployment")
 	body := struct {
-		Source string `json:"source"`
+		Source      string `json:"source"`
+		ProjectName string `json:"project_name"`
 	}{
-		Source: serverDir,
+		Source:      serverDir,
+		ProjectName: name,
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -130,6 +132,6 @@ func deployFunc(args []string, quiet bool) error {
 			result.Deployment.CreatedAt,
 		},
 	}
-	output.PrintTable(h, r)
+	output.PrintTable(h, r, nil)
 	return nil
 }
