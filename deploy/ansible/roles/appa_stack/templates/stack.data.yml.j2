@@ -1,0 +1,36 @@
+# Deployed once, independently
+# docker stack deploy -c stack.data.yml appa_data
+
+networks:
+  appa_net:
+    external: true
+
+services:
+  db:
+    image: {{ postgres_image }}
+    env_file: {{ appa_stack_dir }}/.env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - appa_net
+    ports:
+      - published: 5432
+        target: 5432
+        protocol: tcp
+        mode: host
+    volumes:
+      - {{ appa_stack_dir }}/data/postgres:/var/lib/postgresql
+    deploy:
+      mode: replicated
+      replicas: 1
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.25'

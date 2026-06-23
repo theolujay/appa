@@ -56,10 +56,16 @@
     mode: "0600"
   no_log: true
 
-- name: Render compose.yml
+- name: Render stack.data.yml
   ansible.builtin.template:
-    src: compose.yml.j2
-    dest: "{{ appa_stack_dir }}/compose.yml"
+    src: stack.data.yml.j2
+    dest: "{{ appa_stack_dir }}/stack.data.yml"
+    mode: "0644"
+
+- name: Render stack.base.yml
+  ansible.builtin.template:
+    src: stack.base.yml.j2
+    dest: "{{ appa_stack_dir }}/stack.base.yml"
     mode: "0644"
 
 - name: Render Caddyfile
@@ -74,8 +80,57 @@
     dest: "{{ appa_stack_dir }}/scripts/entrypoint.sh"
     mode: "0755"
 
-- name: Start the Appa Stack
+- name: Check if Docker Swarm is active
+  ansible.builtin.command: docker info --format '{{ "{{.Swarm.LocalNodeState}}" }}'
+  register: swarm_status
+  changed_when: false
+
+- name: Initialize Docker Swarm
   ansible.builtin.command:
-    cmd: docker compose -f {{ appa_stack_dir }}/compose.yml up -d
-  register: compose_up
-  changed_when: compose_up.stdout | length > 0
+    cmd: docker swarm init --advertise-addr "{{ ansible_default_ipv4.address }}"
+  when: swarm_status.stdout != "active"
+  changed_when: true
+
+- name: Stat legacy compose file
+  ansible.builtin.stat:
+    path: "{{ appa_stack_dir }}/compose.yml"
+  register: legacy_compose
+
+- name: Stop legacy compose stack if running
+  ansible.builtin.command:
+    cmd: docker compose -f {{ appa_stack_dir }}/compose.yml down
+  register: compose_down
+  when: legacy_compose.stat.exists
+  changed_when: compose_down.stdout | length > 0
+  ignore_errors: true
+
+- name: Prune legacy network configuration
+  ansible.builtin.command:
+    cmd: docker network rm appa_net
+  register: appa_net_down
+  when: >
+    legacy_compose.stat.exists and
+    compose_down.rc is defined and compose_down.rc == 0 and
+    "Network appa_net" not in compose_down.stdout
+  failed_when: false
+
+- name: Create Docker Swarm network for Appa
+  ansible.builtin.command:
+    cmd: docker network create --driver overlay --attachable appa_net
+  register: appa_net_up
+  when: appa_net_down is skipped or appa_net_down is success
+  failed_when:
+    - appa_net_up.rc != 0
+    - "'already exists' not in appa_net_up.stderr"
+
+- name: Deploy the Appa Data Stack
+  ansible.builtin.command:
+    cmd: docker stack deploy --detach --prune --quiet -c {{ appa_stack_dir }}/stack.data.yml appa_data
+  register: data_deploy
+  changed_when: data_deploy.stdout | length > 0
+
+- name: Deploy the Appa Server Stack
+  ansible.builtin.command:
+    cmd: docker stack deploy --detach --prune --quiet -c {{ appa_stack_dir }}/stack.base.yml appa
+  register: stack_deploy
+  changed_when: stack_deploy.stdout | length > 0

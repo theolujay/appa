@@ -1,0 +1,168 @@
+# ── Shared Anchors ─────────────────────────────────────
+x-security: &security
+  cap_drop:
+    - ALL
+  cap_add:
+    - CHOWN
+    - SETGID
+    - SETUID
+
+x-dns: &dns
+  dns:
+    - 8.8.8.8
+    - 8.8.4.4
+
+x-logging: &logging
+  logging:
+    driver: "json-file"
+    options:
+      mode: "non-blocking"
+      max-buffer-size: "4m"
+      max-size: "10m"
+      max-file: "3"
+
+x-deploy: &deploy
+  update_config:
+    order: start-first
+    failure_action: rollback
+    delay: 10s
+  restart_policy:
+    condition: on-failure
+    delay: 15s
+    max_attempts: 3
+    window: 120s
+
+x-env: &env
+  BUILDKIT_HOST: docker-container://buildkit
+  DOCKER_HOST: unix:///var/run/docker.sock
+
+networks:
+  appa_net:
+    driver: overlay
+    attachable: true
+
+volumes:
+  api_data:
+  caddy_data:
+  railpack_cache:
+
+services:
+  buildkit:
+    image: {{ buildkit_image }}
+    <<: *logging
+    privileged: true
+    networks:
+      - appa_net
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    deploy:
+      mode: replicated
+      replicas: 1
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+  api:
+    <<: [*dns, *security, *logging]
+    image: {{ appa_api_image }}
+    command:
+      - "-port=$PORT"
+      - "-env=$ENV"
+      - "-db-dsn=$APPA_DB_DSN"
+      - "-db-max-open-conns=$DB_MAX_OPEN_CONNS"
+      - "-db-max-idle-conns=$DB_MAX_IDLE_CONNS"
+      - "-db-max-idle-time=$DB_MAX_IDLE_TIME"
+      - "-limiter-rps=$LIMITER_RPS"
+      - "-limiter-burst=$LIMITER_BURST"
+      - "-limiter-enabled=$LIMITER_ENABLED"
+      - "-smtp-host=$SMTP_HOST"
+      - "-smtp-port=$SMTP_PORT"
+      - "-smtp-username=$SMTP_USERNAME"
+      - "-smtp-password=$SMTP_PASSWORD"
+      - "-smtp-sender=$SMTP_SENDER"
+      - "-cors-trusted-origins=$CORS_TRUSTED_ORIGINS"
+    depends_on:
+      - db
+    env_file: {{ appa_stack_dir }}/.env
+    environment:
+      <<: *env
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:$PORT"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - appa_net
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - api_data:/data
+      - railpack_cache:/tmp/railpack
+      - {{ appa_stack_dir }}/builds:/builds
+    deploy:
+      <<: *deploy
+      mode: replicated
+      replicas: 1
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  caddy:
+    image: {{ caddy_image }}
+    <<: [*dns, *logging]
+    env_file: {{ appa_stack_dir }}/.env
+    ports:
+      - published: 80
+        target: 80
+        protocol: tcp
+        mode: host
+{% if cloudflare_token %}
+      - published: 443
+        target: 443
+        protocol: tcp
+        mode: host
+{% endif %}
+    volumes:
+      - {{ appa_stack_dir }}/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+    networks:
+      - appa_net
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
+
+  ui:
+    image: {{ appa_ui_image }}
+    <<: *logging
+    depends_on:
+      - api
+    networks:
+      - appa_net
+    deploy:
+      mode: replicated
+      replicas: 1
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+        reservations:
+          memory: 64M
+          cpus: '0.1'

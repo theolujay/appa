@@ -5,17 +5,17 @@ REPO_OWNER="theolujay"
 REPO_NAME="appa"
 
 BOLD="$(tput bold 2>/dev/null || printf '')"
-GREY="$(tput setaf 0 2>/dev/null || printf '')"
-RED="$(tput setaf 1 2>/dev/null || printf '')"
-GREEN="$(tput setaf 2 2>/dev/null || printf '')"
-YELLOW="$(tput setaf 3 2>/dev/null || printf '')"
-BLUE="$(tput setaf 4 2>/dev/null || printf '')"
-NO_COLOR="$(tput sgr0 2>/dev/null || printf '')"
+PURPLE="$(tput setaf 99 2>/dev/null || printf '\033[38;2;125;86;244m')"
+GREEN="$(tput setaf 78 2>/dev/null || printf '\033[38;2;67;191;109m')"
+RED="$(tput setaf 203 2>/dev/null || printf '\033[38;2;255;85;85m')"
+YELLOW="$(tput setaf 228 2>/dev/null || printf '\033[38;2;241;250;140m')"
+GRAY="$(tput setaf 61 2>/dev/null || printf '\033[38;2;98;114;164m')"
+NO_COLOR="$(tput sgr0 2>/dev/null || printf '\033[0m')"
 
 CURL_RETRY_OPTS="--retry 3 --retry-all-errors --retry-delay 2"
 
-info()      { printf '%s\n' "${BOLD}${GREY}>${NO_COLOR} $*"; }
-warn()      { printf '%s\n' "${YELLOW}! $*${NO_COLOR}"; }
+info()      { printf '%s\n' "${GRAY}> $*${NO_COLOR}"; }
+warn()      { printf '%s\n' "${BOLD}${YELLOW}! $*${NO_COLOR}"; }
 error()     { printf '%s\n' "${RED}x $*${NO_COLOR}" >&2; }
 completed() { printf '%s\n' "${GREEN}✓${NO_COLOR} $*"; }
 
@@ -50,7 +50,7 @@ spin_start() {
     i=1
     while true; do
       frame=$(printf '%s' "$frames" | cut -d' ' -f$i)
-      printf '\r  %s%s%s  %s' "${BLUE}" "$frame" "${NO_COLOR}" "$msg"
+      printf '\r  %s  %s' "$frame" "$msg"
       i=$(( (i % 10) + 1 ))
       sleep 0.08
     done
@@ -200,7 +200,7 @@ printf '\n'
 
 # --- Confirm ---
 if [ -t 0 ] && [ -z "${FORCE}" ]; then
-  printf '%s' "${YELLOW}?${NO_COLOR} Install ${REPO_NAME} ${GREEN}${VERSION}${NO_COLOR} to ${BOLD}${GREEN}${BIN_DIR}${NO_COLOR}? [y/N] "
+  printf '%s' "${PURPLE}?${NO_COLOR} Install ${REPO_NAME} ${GREEN}${VERSION}${NO_COLOR} to ${BOLD}${GREEN}${BIN_DIR}${NO_COLOR}? [y/N] "
   read -r yn </dev/tty || true
   case "$yn" in
     y|Y|yes|YES) ;;
@@ -288,8 +288,6 @@ if ! has uv; then
   # Ensure uv is on PATH for the next steps
   export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 fi
-
-SPIN_PID=""
 if has uv; then
   APPA_ANSIBLE_DIR="${HOME}/.appa/ansible"
   mkdir -p "$APPA_ANSIBLE_DIR"
@@ -309,7 +307,7 @@ fi
 
 # --- Done ---
 printf '\n'
-printf '%s' "${BLUE}"
+printf '%s' "${PURPLE}"
 cat << 'EOF'
 
       _|_|
