@@ -113,6 +113,7 @@
     compose_down.rc is defined and compose_down.rc == 0 and
     "Network appa_net" not in compose_down.stdout
   failed_when: false
+  changed_when: "'appa_net' in appa_net_down.stdout"
 
 - name: Create Docker Swarm network for Appa
   ansible.builtin.command:
@@ -122,6 +123,7 @@
   failed_when:
     - appa_net_up.rc != 0
     - "'already exists' not in appa_net_up.stderr"
+  changed_when: appa_net_up.stdout | length > 0
 
 - name: Deploy the Appa Data Stack
   ansible.builtin.command:
