@@ -1,13 +1,12 @@
-# Appa
-
 ![GitHub Release](https://img.shields.io/github/v/release/theolujay/appa)
 [![Ansible Tests](https://github.com/theolujay/appa/actions/workflows/ansible-tests.yml/badge.svg)](https://github.com/theolujay/appa/actions/workflows/ansible-tests.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/theolujay/appa)](https://goreportcard.com/report/github.com/theolujay/appa)
 ![GitHub License](https://img.shields.io/github/license/theolujay/appa)
 
 
-Appa is a self-hosted, CLI-native deployment platform. Bring your own VPS, connect your domain, and deploy apps without writing Dockerfiles or configuring web servers.
+Turn any VPS into your own zero-config deployment platform, effortlessly 🦬
 
+Just **connect** your domain and **push** your code. **Deploy** apps instantly without Dockerfiles or playing sysadmin on hard mode. Even better: **manage** your **entire fleet** of VPS instances from **one terminal**, anywhere!
 ```
 Operator Machine              Remote Server (VPS)
  └─ Appa CLI                    ├─ Caddy Gateway
@@ -16,6 +15,12 @@ Operator Machine              Remote Server (VPS)
      └──────────────────────────┼─ PostgreSQL
                                 └─ Your containers
 ```
+
+## Prerequisites
+
+- A fresh Linux VPS with SSH access (key-based authentication).
+- At least 4GB of RAM (2GB+ recommended for building images).
+- (Optional) A Cloudflare API token for wildcard DNS and automatic TLS.
 
 ## Quick Start
 
