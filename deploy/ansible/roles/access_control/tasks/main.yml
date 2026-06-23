@@ -11,6 +11,15 @@
     state: present
   loop: "{{ security_groups }}"
 
+- name: Create supplementary groups for users
+  ansible.builtin.group:
+    name: "{{ item }}"
+    state: present
+  loop: >-
+    {{ (deploy_user.groups + operator_user.groups)
+       | flatten | unique
+       | difference(security_groups | map(attribute='name') | list) }}
+
 - name: Create deploy user
   ansible.builtin.user:
     name: "{{ deploy_user.name }}"
