@@ -77,7 +77,7 @@ See [docs/user-guide.md](docs/user-guide.md) for the full walkthrough — instal
 ## Documentation
 
 | Doc | For |
-|---|---|---|
+|---|---|
 | [User Guide](docs/user-guide.md) | Installing the CLI, provisioning servers, deploying projects, managing env vars |
 | [Architecture](docs/architecture.md) | Design decisions, invariants, data paths, and glossary |
 | [Contributing](CONTRIBUTING.md) | Development setup, API routes, project structure, coding conventions |
