@@ -1,10 +1,10 @@
-# Appa User Guide
+# User Guide
 
 ## What is Appa?
 
 Appa is a self-hosted deployment platform you control from your terminal.
 You provision a VPS once with the CLI, then deploy projects with a single
-command — no Dockerfiles, no web server config, no manual routing.
+command: no Dockerfiles, no web server config, no manual routing.
 
 ---
 
@@ -12,11 +12,12 @@ command — no Dockerfiles, no web server config, no manual routing.
 
 1. [Prerequisites](#prerequisites)
 2. [CLI Installation](#cli-installation)
-3. [Setting Up an Instance](#setting-up-an-instance)
+3. [Setting Up a Server](#setting-up-a-server)
 4. [Configuration Reference](#configuration-reference)
-5. [Instance Operations](#instance-operations)
+5. [Server Operations](#server-operations)
 6. [Deploying Projects](#deploying-projects)
-7. [CLI Command Reference](#cli-command-reference)
+7. [Project Lifecycle & Environment Variables](#project-lifecycle--environment-variables)
+8. [CLI Command Reference](#cli-command-reference)
 
 ---
 
@@ -32,6 +33,17 @@ command — no Dockerfiles, no web server config, no manual routing.
 
 ## CLI Installation
 
+### Install script (recommended)
+
+```bash
+curl -fsSL https://appa.theolujay.dev/install.sh | sh
+```
+
+The script downloads the latest binary, verifies its checksum, and installs it
+to a directory in your `$PATH`. It also automatically provisions **uv** and
+**Ansible** in an isolated venv under `~/.appa/ansible/`: no system-wide
+Python dependencies required.
+
 ### Build from source
 
 ```bash
@@ -43,15 +55,15 @@ make build/cli
 
 ---
 
-## Setting Up an Instance
+## Setting Up a Server
 
-An "instance" is a single Appa Server installation on a VPS. The CLI stores
-its configuration locally in `~/.appa/instances/<name>/config.toml`.
+A "server" is a single Appa Server instance on a VPS. The CLI stores
+its configuration locally in `~/.appa/servers/<name>/config.toml`.
 
-### 1. Create an instance config
+### 1. Create a server config
 
 ```bash
-appa instance init my-server
+appa server init my-server
 ```
 
 This creates the config and records your current OS username as the
@@ -59,13 +71,13 @@ This creates the config and records your current OS username as the
 it with `--op-name`:
 
 ```bash
-appa instance init my-server --op-name jane
+appa server init my-server --op-name jane
 ```
 
 ### 2. Set the SSH target
 
 ```bash
-appa instance set-host my-server root@203.0.113.10 -i ~/.ssh/id_ed25519
+appa server set-host my-server root@203.0.113.10 -i ~/.ssh/id_ed25519
 ```
 
 The target format is `user@host` or `user@host:port`. The CLI tests the
@@ -74,8 +86,9 @@ connection before saving.
 Flags:
 
 | Flag | Description |
-|---|---|
+|---|---|---|
 | `-i`, `--identity-file` | Path to your SSH private key |
+| `--port` | API port override (e.g. `8080` for Vagrant forwarded port; default 80) |
 | `--skip-verify` | Skip host key verification (e.g. for ephemeral VMs) |
 
 ### 3. Run preflight checks
@@ -85,7 +98,13 @@ appa preflight my-server
 ```
 
 Preflight validates SSH connectivity, OS compatibility, required ports,
-and checks for existing Docker installations.
+and checks for existing Docker installations. Use `--no-tty` to run in
+non-interactive mode (e.g. CI pipelines).
+
+| Flag | Description |
+|---|---|
+| `--no-tty` | Run in non-interactive mode (plain text output) |
+| `--skip-verify` | Skip SSH host key verification |
 
 ### 4. Provision the server
 
@@ -101,7 +120,7 @@ This is the big one. Setup does all of the following automatically:
    `operator` user (your username, for manual SSH), each with your SSH key.
 3. **Installs Docker** — Docker Engine and Compose plugin.
 4. **Deploys the Appa Stack** — pulls container images for the API, database,
-   BuildKit, Caddy, and the web UI, then starts everything via Docker Compose.
+   BuildKit, Caddy, and the web UI, then starts everything via Docker Stack.
 5. **Waits for health** — polls the API health endpoint until it responds.
 
 After setup, subsequent SSH operations use the `deploy` user (never `root`).
@@ -125,7 +144,7 @@ account, and you're ready to deploy apps through the UI.
 
 ## Configuration Reference
 
-### Instance config (`~/.appa/instances/<name>/config.toml`)
+### Server config (`~/.appa/servers/<name>/config.toml`)
 
 ```toml
 name = "my-server"
@@ -136,12 +155,12 @@ ssh_identity_file = "/home/you/.ssh/id_ed25519"
 skip_ssh_verify = false
 operator_user_name = "jane"
 setup_done = true
-base_api_url = "http://203.0.113.10"
+api_base_url = "http://203.0.113.10"
 ```
 
 | Field | Description |
 |---|---|
-| `name` | Instance name (matches the directory) |
+| `name` | Server name (matches the directory) |
 | `ssh_host` | VPS IP or hostname |
 | `ssh_user` | SSH user — `root` before setup, `deploy` after |
 | `ssh_port` | SSH port (default 22) |
@@ -152,16 +171,19 @@ base_api_url = "http://203.0.113.10"
 | `cloudflare_token` | Cloudflare API token (optional — for automatic wildcard TLS) |
 | `smtp_*` | SMTP credentials (optional — for email notifications) |
 | `setup_done` | Whether `appa setup` has completed |
-| `base_api_url` | API base URL (set automatically after setup) |
+| `api_base_url` | API base URL (set automatically after setup) |
+| `api_port` | API port override (e.g. `8080` for Vagrant forwarded port; default 80) |
 
-The quickest way to edit an instance config is:
+The quickest way to edit a server config is:
 
 ```bash
-appa instance edit my-server
+appa server edit my-server
 ```
 
 This opens the TOML file in your `$EDITOR` and validates it on save. If
-validation fails, you can re-edit or abort (changes are reverted).
+validation fails, you can re-edit or abort (changes are reverted). If you
+rename the server in the editor, the config directory is renamed
+automatically.
 
 ### Project config (`~/.appa/projects/<name>/config.toml`)
 
@@ -175,7 +197,7 @@ target = "my-server"
 |---|---|
 | `name` | Project name (matches the directory) |
 | `source` | Absolute path to the project's source directory |
-| `target` | Target instance name (must match an existing instance) |
+| `target` | Target server name (must match an existing server) |
 
 Edit with:
 
@@ -185,9 +207,9 @@ appa project edit my-app
 
 ---
 
-## Instance Operations
+## Server Operations
 
-Once your instance is set up, you can manage it remotely:
+Once your server is set up, you can manage it remotely:
 
 ### Check status
 
@@ -219,7 +241,7 @@ appa logs my-server -n 100
 
 ### Apply configuration changes
 
-After editing an instance config (e.g. changing the domain or SMTP settings),
+After editing a server config (e.g. changing the domain or SMTP settings),
 re-apply them:
 
 ```bash
@@ -257,7 +279,7 @@ appa upgrade my-server --version v0.2.0
 
 ## Deploying Projects
 
-Projects let you deploy source code from your local machine to an instance.
+Projects let you deploy source code from your local machine to a server.
 
 ### 1. Create a project
 
@@ -278,7 +300,7 @@ appa project init /home/you/code/my-app --target my-server
 appa project edit my-app
 ```
 
-Lets you change the source path or target instance.
+Lets you change the source path or target server.
 
 ### 3. Deploy
 
@@ -289,11 +311,13 @@ appa deploy my-app
 What happens under the hood:
 
 1. The CLI **rsyncs** your source directory to `/opt/appa/builds/my-app/` on
-   the target instance using SSH.
-2. It calls the Appa API with the server-side path.
-3. The API runs the pipeline: Railpack detects the runtime, BuildKit builds
+   the target server using SSH.
+2. The CLI calls the API to **auto-create the project** (if it doesn't already
+   exist on the server) and retrieves the project ID.
+3. It triggers a deployment with the server-side path and project ID.
+4. The API runs the pipeline: Railpack detects the runtime, BuildKit builds
    the image, Docker starts the container, and Caddy registers a route.
-4. The CLI prints the deployment ID, status, and creation time.
+5. The CLI prints the deployment ID, status, and creation time.
 
 Hide rsync transfer progress:
 
@@ -303,11 +327,54 @@ appa deploy my-app --quiet
 
 ---
 
+## Project Lifecycle & Environment Variables
+
+Once a project has been deployed, you can manage its lifecycle and
+configuration through the CLI.
+
+### View project logs
+
+```bash
+appa project logs my-app
+```
+
+Opens a WebSocket-powered TUI that streams build and runtime logs from the
+latest deployment. Supports scrolling, follow mode, and keyboard navigation.
+
+### Stop a project
+
+```bash
+appa project stop my-app
+```
+
+Stops the running container or cancels a pending deployment.
+
+### Restart a project
+
+```bash
+appa project restart my-app
+```
+
+Stops the current deployment and triggers a new build and deploy.
+
+### Manage environment variables
+
+```bash
+appa project env set my-app KEY=value
+appa project env get my-app
+appa project env unset my-app KEY
+```
+
+Environment variables are stored on the server and merged into the build
+step alongside any deployment-specific variables.
+
+---
+
 ## CLI Command Reference
 
-### `appa instance init <name>`
+### `appa server init <name>`
 
-Create a new instance config.
+Create a new server config.
 
 | Flag | Description |
 |---|---|
@@ -315,42 +382,45 @@ Create a new instance config.
 
 ---
 
-### `appa instance edit <name>`
+### `appa server edit <name>`
 
-Open instance config in `$EDITOR` with validation on save.
+Open server config in `$EDITOR` with validation on save. Renaming the
+server in the editor renames the config directory automatically.
 
 ---
 
-### `appa instance set-host <name> <target>`
+### `appa server set-host <name> <target>`
 
-Set the SSH target for an instance.
+Set the SSH target for a server.
 
 | Flag | Description |
 |---|---|
 | `-i`, `--identity-file` | Path to SSH private key |
+| `--port` | API port override (e.g. `8080` for Vagrant forwarded port; default 80) |
 | `--skip-verify` | Skip host key verification |
 
 ---
 
-### `appa instance list`
+### `appa server ls`
 
-List all configured instances.
+List all configured servers.
 
 ---
 
 ### `appa preflight <name>`
 
-Run preflight checks on a target instance.
+Run preflight checks on a target server.
 
 | Flag | Description |
 |---|---|
+| `--no-tty` | Run in non-interactive mode (plain text output) |
 | `--skip-verify` | Skip SSH host key verification |
 
 ---
 
 ### `appa setup <name>`
 
-First-time provisioning of an Appa instance.
+First-time provisioning of an Appa server.
 
 | Flag | Description |
 |---|---|
@@ -376,7 +446,7 @@ Re-apply configuration changes idempotently.
 
 ### `appa status <name>`
 
-Show instance health and service status.
+Show server health and service status.
 
 ---
 
@@ -417,7 +487,7 @@ Create a new project.
 
 | Flag | Description |
 |---|---|
-| `-t`, `--target` | Target instance name |
+| `-t`, `--target` | Target server name |
 | `-n`, `--name` | Project name (inferred from source if not specified) |
 
 ---
@@ -425,6 +495,42 @@ Create a new project.
 ### `appa project edit <name>`
 
 Open project config in `$EDITOR` with validation on save.
+
+---
+
+### `appa project logs <name>`
+
+Stream WebSocket logs from the latest deployment in a TUI viewer.
+
+---
+
+### `appa project stop <name>`
+
+Stop the running container or cancel a pending deployment.
+
+---
+
+### `appa project restart <name>`
+
+Stop the current deployment and trigger a new build.
+
+---
+
+### `appa project env set <name> <key=value>`
+
+Set an environment variable for a project.
+
+---
+
+### `appa project env get <name>`
+
+List all environment variables for a project.
+
+---
+
+### `appa project env unset <name> <key>`
+
+Remove an environment variable from a project.
 
 ---
 

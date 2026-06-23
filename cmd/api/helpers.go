@@ -223,8 +223,8 @@ func (app *application) readInt(qs url.Values, key string, defaultValue int) (in
 	return i, nil
 }
 
-// The background() helper accepts an arbitrary function as a parameter
-// to run within a recover-able goroutine
+// The background() helper accepts an arbitrary function
+// as a parameter to run within a recover-able goroutine.
 func (app *application) background(fn func()) {
 	app.wg.Go(func() {
 		defer func() {

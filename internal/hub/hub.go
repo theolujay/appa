@@ -14,8 +14,9 @@ const (
 )
 
 type LogMessage struct {
-	ID   int64  `json:"id"`
-	Line string `json:"line"`
+	ID    int64  `json:"id"`
+	Line  string `json:"line"`
+	Phase string `json:"phase,omitempty"`
 }
 
 type StatusUpdate struct {
@@ -132,12 +133,16 @@ func (h *Hub) Run() {
 // all subscribed clients. This call enqueues the message on the
 // internal broadcast channel and returns immediately (subject to
 // channel buffering/backpressure).
-func (h *Hub) PublishLog(deploymentID int64, log LogMessage) {
+func (h *Hub) PublishLog(deploymentID int64, id int64, phase, line string) {
 	h.broadcast <- InternalMessage{
 		DeploymentID: deploymentID,
 		Event: Event{
 			Type: MessageTypeLog,
-			Log:  log,
+			Log: LogMessage{
+				ID:    id,
+				Line:  line,
+				Phase: phase,
+			},
 		},
 	}
 }

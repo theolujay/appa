@@ -82,7 +82,7 @@ func (p *Pipeline) logLine(id int64, phase, msg string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("append log: %w", err)
 	}
-	p.hub.PublishLog(id, hub.LogMessage{ID: logID, Line: msg})
+	p.hub.PublishLog(id, logID, phase, msg)
 	return logID, nil
 }
 
@@ -224,9 +224,9 @@ func (p *Pipeline) Run(d *data.Deployment) {
 	p.publishStatus(pc)
 }
 
-// Cancel stops a deployment by either cancelling the active context
+// Stop stops a deployment by either cancelling the active context
 // or stopping the associated container if it's already running.
-func (p *Pipeline) Cancel(ID int64) error {
+func (p *Pipeline) Stop(ID int64) error {
 	p.mu.Lock()
 	cancel, ok := p.activeTasks[ID]
 	if ok {
@@ -238,7 +238,7 @@ func (p *Pipeline) Cancel(ID int64) error {
 	defer cancel()
 	dc := pipelineCtx{
 		ctx:    ctx,
-		status: canceled,
+		status: stopped,
 		ID:     ID,
 		update: &data.DeploymentUpdate{},
 	}
@@ -248,4 +248,57 @@ func (p *Pipeline) Cancel(ID int64) error {
 	p.publishStatus(dc)
 
 	return dc.err
+}
+
+// Restart restarts a deployment's container and routing, given it was successfully built previously.
+func (p *Pipeline) Restart(ID int64) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pc := pipelineCtx{
+		ctx:    ctx,
+		status: deploying,
+		ID:     ID,
+		update: &data.DeploymentUpdate{},
+	}
+
+	stopPC := pipelineCtx{
+		ctx:    ctx,
+		status: stopped,
+		ID:     ID,
+		update: &data.DeploymentUpdate{},
+	}
+	p.stopContainer(&stopPC)
+	if stopPC.err != nil {
+		p.publishStatus(stopPC)
+		return stopPC.err
+	}
+
+	p.publishStatus(pc)
+
+	addr, err := p.restartContainer(ctx, ID)
+	if err != nil {
+		pc.err = err
+		pc.status = failed
+		p.publishStatus(pc)
+		return err
+	}
+
+	err = p.router.addRoute(ID, addr)
+	if err != nil {
+		pc.err = err
+		pc.status = failed
+		p.publishStatus(pc)
+		return err
+	}
+
+	url := fmt.Sprintf("http://%d.localhost", ID)
+	status := running
+	pc.status = running
+	pc.update.URL = &url
+	pc.update.Status = &status
+	pc.update.Address = &addr
+
+	p.publishStatus(pc)
+	return nil
 }

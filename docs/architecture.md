@@ -17,10 +17,9 @@ and [cas-sync.md](./cas-sync.md).
 | --- | --- |
 | Appa CLI | Local operator command-line tool, binary `appa`. |
 | Appa Server | Remote API, dashboard, and deployment runtime on a VPS. |
-| Appa Instance | One Appa Server installation managed by the CLI. |
 | Appa Stack | Server-side services: API, UI, PostgreSQL, BuildKit, Caddy. |
-| Instance config | Local CLI configuration for one instance (SSH target, settings, operator). |
-| Project | Local CLI configuration mapping a source directory to a target instance. |
+| Server config | Local CLI configuration for one server (SSH target, settings, operator). |
+| Project | Local CLI configuration mapping a source directory to a target server. |
 | Deploy user | Non-privileged system user created during setup for CLI automation (rsync, API calls). |
 | Operator user | Optional sudo user created during setup for manual SSH access. |
 | Deployment | One submitted source package and its lifecycle state. |
@@ -35,11 +34,11 @@ and [cas-sync.md](./cas-sync.md).
 
 ```
 Operator Machine
-  └── Appa CLI (instance profiles, preflight, setup/apply/status)
+  └── Appa CLI (server profiles, preflight, setup/apply/status)
         │ SSH + Ansible
         ▼
-Remote VPS / Appa Instance
-  └── Appa Stack (Docker Compose services + generated config)
+Remote VPS / Appa Server
+  └── Appa Stack (Docker Stack services + generated config)
         │
         ▼
 Browser → [ React Dashboard ] → [ Caddy Gateway ]
@@ -59,11 +58,11 @@ tokens.
 
 ## Core Flows
 
-### Operator Provisions an Instance
+### Operator Provisions a Server
 
 1. Install CLI (`appa.theolujay.dev/install.sh`).
-2. `appa instance init personal` → creates `~/.appa/instances/personal/config.toml`.
-3. `appa instance set-host personal root@203.0.113.10` → SSH target.
+2. `appa server init personal` → creates `~/.appa/servers/personal/config.toml`.
+3. `appa server set-host personal root@203.0.113.10` → SSH target.
 4. `appa preflight personal` → validates SSH, OS, ports, DNS, inputs.
 5. `appa setup personal` → runs Ansible (security-hardening then deploy-stack).
 6. Ansible installs Docker, writes env/config/templates, starts Appa Stack.
@@ -85,14 +84,16 @@ Progressive configuration: SSH target first, then domain, Cloudflare, SMTP, etc.
 
 ### Operator Deploys a Project (CLI)
 
-1. `appa deploy init <source> --target <instance>` creates project metadata
+1. `appa project init <source> --target <server>` creates project metadata
    in `~/.appa/projects/<name>/config.toml`.
-2. `appa deploy <name>` loads the project and target instance profiles.
+2. `appa deploy <name>` loads the project and target server profiles.
 3. CLI rsyncs the source directory over SSH to `/opt/appa/builds/<project>/`
-   on the instance using the deploy user's credentials.
-4. CLI sends an API request to the instance with
-   `{"source_path": "/builds/<project>/"}`.
-5. API pipeline reads source from the local path and proceeds through
+   on the server using the deploy user's credentials.
+4. CLI calls the Appa API to **auto-create the project** on the server
+   (if it doesn't exist yet) and retrieves the project ID.
+5. CLI sends an API request with
+   `{"source_path": "/builds/<project>/", "project_id": <id>}`.
+6. API pipeline reads source from the local path and proceeds through
    Railpack → BuildKit → container start (same flow as Git deploys).
 
 ### Logs Streaming
@@ -126,12 +127,12 @@ Progressive configuration: SSH target first, then domain, Cloudflare, SMTP, etc.
 8. Logs persisted before WebSocket publication.
 9. Uploaded archives extracted into isolated per-upload directories.
 10. Platform and user workloads share a network, not a process.
-11. CLI ships source to the instance via rsync; the API remains the sole
+11. CLI ships source to the server via rsync; the API remains the sole
     deployment authority — all builds, container lifecycle, and route
     management happen server-side.
 12. `setup`/`apply` are idempotent.
 13. Operator secrets are never logged.
-14. Local instance profiles and credentials are encrypted using Ansible Vault (planned).
+14. Local server profiles and credentials are encrypted using Ansible Vault (planned).
 
 ## Failure Model
 
@@ -155,9 +156,9 @@ Progressive configuration: SSH target first, then domain, Cloudflare, SMTP, etc.
 - **WebSocket hub pattern** — Single goroutine for registration/broadcast; DB as durable store.
 - **Wildcard TLS via DNS-01** — HTTP-01 doesn't support wildcards; Cloudflare + caddy-dns plugin.
 - **CLI-managed provisioning** — CLI owns profiles/preflight/Ansible gen; Ansible owns host mutations; API owns deployments.
-- **Ansible Vault for Local Secrets** (Planned) — Instance profiles and operator configuration (including passwords, tokens, and SSH keys) are encrypted on the operator's disk using Ansible Vault to protect secrets at rest.
+- **Ansible Vault for Local Secrets** (Planned) — Server profiles and operator configuration (including passwords, tokens, and SSH keys) are encrypted on the operator's disk using Ansible Vault to protect secrets at rest.
 - **rsync for source shipping** — `appa deploy` uses rsync over SSH to transfer
-  source files to the instance. It relies on system `rsync` on both ends but
+  source files to the server. It relies on system `rsync` on both ends but
   requires no new infrastructure. A pure-Go content-addressable replacement
   is researched in [cas-sync.md](./cas-sync.md) for future consideration.
 - **Content-Addressable Sync** (Future) — A CAS engine over SSH using SHA-256

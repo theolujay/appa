@@ -18,6 +18,7 @@ type DeploymentModel struct {
 type Deployment struct {
 	ID        int64   `json:"id"`
 	UserID    *int64  `json:"user_id"`
+	ProjectID *int64  `json:"project_id,omitempty"`
 	Source    string  `json:"source"`
 	Status    string  `json:"status"`
 	ImageTag  *string `json:"image_tag"`
@@ -41,7 +42,7 @@ type DeploymentUpdate struct {
 type DeploymentModeler interface {
 	Create(d *Deployment) error
 	Get(id int64) (*Deployment, error)
-	GetAllForUser(id int64, status string, filters Filters) (
+	GetAllForUser(id int64, status string, projectID int64, filters Filters) (
 		[]Deployment, Metadata, error,
 	)
 	GetLogs(id int64) ([]LogEntry, error)
@@ -49,7 +50,7 @@ type DeploymentModeler interface {
 	UpdateAndGet(id int64, u DeploymentUpdate) (*Deployment, error)
 }
 
-func ValidateDeployment(d *Deployment) error {
+func ValidateDeployment(d Deployment) error {
 	v := vd.New()
 	v.Check(d.Source != "", "source", "must be provided")
 	v.Check(len(d.Source) <= 500, "source", "must not be more than 500 bytes long")
@@ -76,8 +77,8 @@ func validateEnvVars(e string) int {
 
 func (dm *DeploymentModel) Create(d *Deployment) error {
 	query := `
-		INSERT INTO deployments (source, env_vars, user_id)
-		VALUES($1, $2, $3)
+		INSERT INTO deployments (source, env_vars, user_id, project_id)
+		VALUES($1, $2, $3, $4)
 		RETURNING id, status, created_at, version
 	`
 
@@ -86,6 +87,7 @@ func (dm *DeploymentModel) Create(d *Deployment) error {
 		d.Source,
 		d.EnvVars,
 		d.UserID,
+		d.ProjectID,
 	).Scan(
 		&d.ID,
 		&d.Status,
@@ -93,13 +95,16 @@ func (dm *DeploymentModel) Create(d *Deployment) error {
 		&d.Version,
 	)
 
-	return fmt.Errorf("deployments.create: %w", err)
+	if err != nil {
+		return fmt.Errorf("deployments.create: %w", err)
+	}
+	return nil
 }
 
 func (dm *DeploymentModel) Get(id int64) (*Deployment, error) {
 
 	query := `
-		SELECT id, user_id, source, status, image_tag, address, env_vars, url, created_at
+		SELECT id, user_id, project_id, source, status, image_tag, address, env_vars, url, created_at
 		FROM deployments WHERE id = $1
 	`
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -110,6 +115,7 @@ func (dm *DeploymentModel) Get(id int64) (*Deployment, error) {
 	err := dm.DB.QueryRowContext(ctx, query, id).Scan(
 		&d.ID,
 		&d.UserID,
+		&d.ProjectID,
 		&d.Source,
 		&d.Status,
 		&d.ImageTag,
@@ -132,7 +138,7 @@ func (dm *DeploymentModel) Get(id int64) (*Deployment, error) {
 }
 
 func (dm *DeploymentModel) GetAllForUser(
-	id int64, status string, filters Filters,
+	id int64, status string, projectID int64, filters Filters,
 ) ([]Deployment, Metadata, error) {
 	totalRecords := 0
 	md := Metadata{}
@@ -140,19 +146,20 @@ func (dm *DeploymentModel) GetAllForUser(
 	deployments := make([]Deployment, 0, filters.limit())
 
 	query := fmt.Sprintf(`
-		SELECT count(*) OVER(), id, user_id, source, status,
+		SELECT count(*) OVER(), id, user_id, project_id, source, status,
 			image_tag, address, env_vars, url, created_at, version
         FROM deployments
 		WHERE (user_id = $1 OR ($1 = 0 AND user_id IS NULL))
 		AND (LOWER(status) = LOWER($2) OR $2 = '')
+		AND (project_id = $3 OR $3 = 0)
         ORDER BY %s %s, id ASC
-		LIMIT $3 OFFSET $4
+		LIMIT $4 OFFSET $5
 	`, filters.sortColumn(), filters.sortDirection())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	args := []any{id, status, filters.limit(), filters.offset()}
+	args := []any{id, status, projectID, filters.limit(), filters.offset()}
 
 	rows, err := dm.DB.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -170,6 +177,7 @@ func (dm *DeploymentModel) GetAllForUser(
 			&totalRecords,
 			&d.ID,
 			&d.UserID,
+			&d.ProjectID,
 			&d.Source,
 			&d.Status,
 			&d.ImageTag,
@@ -276,7 +284,7 @@ func (dm *DeploymentModel) UpdateAndGet(id int64, u DeploymentUpdate) (*Deployme
 
 	query += strings.Join(fields, ", ")
 	query += fmt.Sprintf(" WHERE id = $%d", len(args)+1)
-	query += " RETURNING id, user_id, source, status, image_tag, address, env_vars, url, created_at"
+	query += " RETURNING id, user_id, project_id, source, status, image_tag, address, env_vars, url, created_at"
 	args = append(args, id)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -287,6 +295,7 @@ func (dm *DeploymentModel) UpdateAndGet(id int64, u DeploymentUpdate) (*Deployme
 	err := dm.DB.QueryRowContext(ctx, query, args...).Scan(
 		&d.ID,
 		&d.UserID,
+		&d.ProjectID,
 		&d.Source,
 		&d.Status,
 		&d.ImageTag,

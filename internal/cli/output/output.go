@@ -2,85 +2,160 @@ package output
 
 import (
 	"fmt"
+	"image/color"
 	"os"
 	"strings"
-	"text/tabwriter"
+
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/table"
 )
 
-// PrintTable prints a formatted table to standard output using a tabwriter.
-//
-// Example output:
-//
-//	`
-//	NAME       HOST                    STATUS
-//	personal   root@203.0.113.10       done
-//	staging    root@198.51.100.20      host set
-//	`
-func PrintTable(header []string, rows [][]string) {
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, strings.Join(header, "\t"))
-	for _, row := range rows {
-		fmt.Fprintln(w, strings.Join(row, "\t"))
-	}
-	w.Flush()
+var (
+	Purple    = lipgloss.Color("#7D56F4")
+	Green     = lipgloss.Color("#43BF6D")
+	Red       = lipgloss.Color("#FF5555")
+	Yellow    = lipgloss.Color("#F1FA8C")
+	Cyan      = lipgloss.Color("#8BE9FD")
+	Gray      = lipgloss.Color("#6272A4")
+	White     = lipgloss.Color("#FAFAFA")
+	DarkBg    = lipgloss.Color("#1A1A2E")
+	DarkCard  = lipgloss.Color("#16213E")
+	DraculaBg = lipgloss.Color("#282A36")
+	DraculaFg = lipgloss.Color("#F8F8F2")
+)
+
+var (
+	SectionStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(Purple)
+
+	SuccessStyle = lipgloss.NewStyle().
+			Foreground(Green)
+
+	ErrorLabelStyle = lipgloss.NewStyle().
+			Background(Red).
+			Foreground(White).
+			Bold(true).
+			Padding(0, 1)
+
+	WarnStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(Yellow)
+
+	SubtleStyle = lipgloss.NewStyle().
+			Foreground(Gray)
+
+	BadgeStyle = lipgloss.NewStyle().
+			Foreground(White).
+			Bold(true).
+			Padding(0, 1)
+)
+
+func StatusBadge(text string, c color.Color) string {
+	return BadgeStyle.Background(c).Render(text)
 }
 
-// Check prints a status check line. It displays a checkmark (✓) if ok is true,
-// and a cross (✗) otherwise. The label supports fmt-style formatting.
-//
-// Example output:
-//
-//	`
-//	✓ SSH target
-//	✗ connection timed out
-//	`
 func Check(label string, ok bool, args ...any) {
 	s := fmt.Sprintf(label, args...)
 	if ok {
-		fmt.Printf("✓ %s\n", s)
+		lipgloss.Printf("%s %s\n", BoldGreen("✓"), s)
 	} else {
-		fmt.Printf("✗ %s\n", s)
+		lipgloss.Printf("%s %s\n", BoldRed("✗"), s)
 	}
 }
 
-// Warn prints a warning message to standard output, prefixed with "! ".
-//
-// Example output:
-//
-//	`! Disk usage is high: 90%`
 func Warn(format string, args ...any) {
-	fmt.Printf("! "+format+"\n", args...)
+	lipgloss.Printf("%s\n", WarnStyle.Render("! "+fmt.Sprintf(format, args...)))
 }
 
-// Section prints a section header with an underline for visual separation in CLI output.
-//
-// Example output:
-//
-//	`
-//	Deployment Status
-//	-----------------
-//	`
 func Section(format string, args ...any) {
 	title := fmt.Sprintf(format, args...)
-	fmt.Println()
-	fmt.Println(title)
-	fmt.Println(strings.Repeat("-", len(title)))
+	lipgloss.Println()
+	lipgloss.Println(SectionStyle.Render(title))
+	lipgloss.Println(SubtleStyle.Render(strings.Repeat("─", len(title))))
 }
 
-// Error prints a formatted error message to standard error, prefixed with "Error: ".
-//
-// Example output:
-//
-//	`Error: Failed to connect: connection refused`
 func Error(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "Error: "+format+"\n", args...)
+	lipgloss.Fprintf(os.Stderr, "%s %s\n",
+		ErrorLabelStyle.Render("Error"),
+		fmt.Sprintf(format, args...))
 }
 
-// Success prints a formatted success message to standard output.
-//
-// Example output:
-//
-//	`Instance "personal" created`
 func Success(format string, args ...any) {
-	fmt.Fprintf(os.Stdout, format+"\n", args...)
+	lipgloss.Println(SuccessStyle.Render(fmt.Sprintf(format, args...)))
+}
+
+func PrintTable(header []string, rows [][]string, dimmed []bool) {
+	t := table.New().
+		Border(lipgloss.NormalBorder()).
+		BorderStyle(lipgloss.NewStyle().Foreground(Gray)).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			switch {
+			case row == table.HeaderRow:
+				return lipgloss.NewStyle().
+					Bold(true).
+					Foreground(Purple).
+					Align(lipgloss.Center).
+					Padding(0, 1)
+			case dimmed != nil && dimmed[row]:
+				return lipgloss.NewStyle().
+					Foreground(Gray).
+					Padding(0, 1)
+			default:
+				return lipgloss.NewStyle().Padding(0, 1)
+			}
+
+		}).
+		Headers(header...).
+		Rows(rows...)
+	lipgloss.Println(t)
+}
+
+func Header(title string) {
+	Section("%s", title)
+}
+
+func Panel(header, body string) {
+	top := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder(), true, false).
+		BorderForeground(Purple).
+		Foreground(Purple).
+		Bold(true).
+		Padding(0, 1).
+		Width(80).
+		Render(header)
+	content := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder(), false, true, true, true).
+		BorderForeground(Purple).
+		Padding(0, 2).
+		Width(78).
+		Render(body)
+	lipgloss.Printf("%s\n%s\n\n", top, content)
+}
+
+func KV(key, value string) {
+	k := lipgloss.NewStyle().Foreground(Purple).Bold(true).Render(key)
+	sep := SubtleStyle.Render(" • ")
+	lipgloss.Printf("  %s %s %s\n", k, sep, value)
+}
+
+func Step(n int, label string) {
+	num := lipgloss.NewStyle().
+		Foreground(White).
+		Background(Purple).
+		Padding(0, 1).
+		Render(fmt.Sprintf(" %d ", n))
+	lipgloss.Printf("%s %s\n", num, label)
+}
+
+func BoldGreen(s string) string {
+	return lipgloss.NewStyle().Foreground(Green).Bold(true).Render(s)
+}
+
+func BoldRed(s string) string {
+	return lipgloss.NewStyle().Foreground(Red).Bold(true).Render(s)
+}
+
+func Faint(s string) string {
+	return lipgloss.NewStyle().Foreground(Gray).Render(s)
 }

@@ -13,6 +13,6 @@ railpack_version: v0.23.0
 
 # Derived defaults
 cors_origins: >-
-  {{ 'https://' + appa_instance_domain if appa_instance_domain else '*' }}
+  {{ 'https://' + appa_server_domain if appa_server_domain else '*' }}
 smtp_sender: >-
-  {{ 'Appa <noreply@' + appa_instance_domain + '>' if appa_instance_domain else 'Appa <noreply@appa.local>' }}
+  {{ 'Appa <noreply@' + appa_server_domain + '>' if appa_server_domain else 'Appa <noreply@appa.local>' }}

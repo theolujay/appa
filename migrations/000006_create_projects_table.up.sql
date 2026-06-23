@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS projects (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP(0) WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX idx_projects_name ON projects(name);
