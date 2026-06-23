@@ -24,7 +24,7 @@ Open [http://localhost](http://localhost) in your browser.
 | `ui` | Vite dev server |
 
 This Compose flow is the local development path. Production operations use the
-Appa CLI: the operator installs the CLI locally, creates an instance profile,
+Appa CLI: the operator installs the CLI locally, creates a server profile,
 and uses Ansible-backed commands to provision Appa Server on a remote VPS.
 
 ## Product Surfaces
@@ -35,9 +35,9 @@ Use these names consistently when discussing or documenting Appa:
 |---|---|
 | Appa | The whole product. |
 | Appa CLI | Local operator/developer command-line tool, binary `appa`. |
-| Appa Server | Remote API, dashboard, and deployment runtime. |
-| Appa Instance | One remote Appa Server installation managed by the CLI. |
+| Appa Server | Remote API, dashboard, and deployment runtime on a VPS. |
 | Appa Stack | Server-side services: API, UI, PostgreSQL, BuildKit, Caddy. |
+| Server config | Local CLI configuration for one server (`~/.appa/servers/<name>/config.toml`). |
 
 The install script (`scripts/install.sh`) installs the CLI binary. It should not be used
 as a script that is run directly on the VPS to install the server stack.
@@ -46,8 +46,8 @@ The first-time production flow is:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/theolujay/appa/main/scripts/install.sh | sh
-appa instance init personal
-appa instance set-host -i ~/.ssh/id_ed25519 personal root@203.0.113.10
+appa server init personal
+appa server set-host -i ~/.ssh/id_ed25519 personal root@203.0.113.10
 appa preflight personal
 appa setup personal
 ```
@@ -85,8 +85,8 @@ make build/cli  # Build the Appa CLI binary
 ### Run CLI
 
 ```bash
-make run/cli ARGS="instance init my-server"
-make run/cli ARGS="instance list"
+make run/cli ARGS="server init my-server"
+make run/cli ARGS="server ls"
 ./bin/appa --help                # Built binary
 go run ./cmd/cli --help          # Direct without build
 ```
@@ -116,8 +116,8 @@ go run ./cmd/cli --help          # Direct without build
 ├── internal/
 │   ├── cli/                # CLI implementation
 │   │   ├── app.go              # Root command
-│   │   ├── commands/           # instance, preflight, setup, apply, status, logs, restart, upgrade
-│   │   ├── config/             # TOML instance profiles
+│   │   ├── commands/           # server, project, deploy, preflight, setup, apply, status, logs, restart, upgrade
+│   │   ├── config/             # TOML server and project profiles
 │   │   ├── ansible/            # Inventory generation + ansible-playbook runner
 │   │   ├── ssh/                # SSH connectivity and command execution
 │   │   └── output/             # Tables, checkmarks, progress output
@@ -159,11 +159,13 @@ cmd/
 internal/cli/
 ├── app.go               # Root command construction
 ├── commands/
-│   ├── instance.go      # appa instance init|set-host|list
+│   ├── server.go        # appa server init|edit|set-host|ls
+│   ├── project.go       # appa project init|edit|logs|stop|restart|env
+│   ├── deploy.go        # appa deploy <project-name>
 │   ├── preflight.go     # appa preflight <name>
 │   ├── setup.go         # appa setup <name> and appa apply <name>
 │   └── operations.go    # appa status|logs|restart|upgrade <name>
-├── config/              # TOML instance profiles (~/.appa/instances/<name>/config.toml)
+├── config/              # TOML server and project profiles (~/.appa/servers/<name>, ~/.appa/projects/<name>)
 ├── ansible/             # Inventory generation and ansible-playbook runner
 ├── ssh/                 # SSH connectivity, command execution, identity file support
 └── output/              # Tables, checkmarks, section headers
@@ -218,16 +220,17 @@ All routes are prefixed with `/v1/` and proxied through Caddy.
 
 ```bash
 appa --version                         # Show build version (git tag or "(devel)")
-appa instance init <name>              # Create a local instance profile
-appa instance edit <name>              # Open profile in $EDITOR, validates on save
-appa instance set-host <name> <target> # Set SSH target, e.g. root@203.0.113.10
-  -i, --identity-file <path>           # SSH private key for this instance
-appa instance list                     # List known Appa instances
+appa server init <name>                # Create a local server profile
+appa server edit <name>                # Open profile in $EDITOR, validates on save
+appa server set-host <name> <target>   # Set SSH target, e.g. root@203.0.113.10
+  -i, --identity-file <path>           # SSH private key for this server
+appa server ls                         # List known Appa servers
 appa preflight <name>                  # Validate SSH, OS, ports, DNS, and inputs
+  --no-tty                             # Non-interactive mode (plain text output)
 appa setup <name>                      # First-time remote Appa Server setup
   --force                              # Skip preflight checks
   --tags, --skip-tags                  # Pass Ansible tag filters
-appa apply <name>                      # Re-apply instance config idempotently
+appa apply <name>                      # Re-apply server config idempotently
   --tags, --skip-tags                  # Pass Ansible tag filters
 appa status <name>                     # Show remote Appa Stack health
 appa logs <name>                       # Tail Appa Stack logs
@@ -237,9 +240,21 @@ appa restart <name>                    # Restart the Appa Stack
   -s, --service <name>                 # Restart only one service
 appa upgrade <name>                    # Upgrade remote Appa Stack images
   --version <tag>                      # Pin to a specific version tag
+appa project init <source>             # Create a project profile
+  -t, --target <name>                  # Target server name
+  -n, --name <name>                    # Project name (default: source dir name)
+appa project edit <name>               # Open project config in $EDITOR
+appa project logs <name>               # Stream deployment logs (WebSocket TUI)
+appa project stop <name>               # Stop running or cancel pending deployment
+appa project restart <name>            # Stop + trigger new deployment
+appa project env set <name> <key=val>  # Set a project environment variable
+appa project env get <name>            # List project environment variables
+appa project env unset <name> <key>    # Remove a project environment variable
+appa deploy <name>                     # Deploy an initialized project
+  --quiet                              # Suppress rsync progress output
 ```
 
-**Profile config** (`~/.appa/instances/<name>/config.toml`, 0600 perms):
+**Server config** (`~/.appa/servers/<name>/config.toml`, 0600 perms):
 ```toml
 name = "personal"
 ssh_host = ""
@@ -255,8 +270,9 @@ smtp_password = ""
 
 **Target format** for `set-host`: `user@host` or `user@host:port` (e.g. `root@203.0.113.10` or `root@203.0.113.10:2222`).
 
-Longer term, project-level commands (`deploy`, `logs`, `env`, rollbacks) will
-use the Appa Server API instead of SSH/Ansible.
+Project-level commands (`deploy`, `logs`, `stop`, `restart`, `env`) use the
+Appa Server API for all server-side operations. Only `server init`, `setup`,
+and `apply` still use SSH and Ansible for host-level provisioning.
 
 ## Coding Conventions
 
