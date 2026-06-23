@@ -105,21 +105,7 @@ func ansibleDir() string {
 	return ansibleExtractedDir()
 }
 
-var errAnsibleMissing = fmt.Errorf(`
-Ansible is not available
-
-Appa tried to find ansible-playbook on your PATH and then tried to
-download uv to install it automatically, but neither succeeded.
-
-Install the dependencies manually:
-  curl -fsSL https://astral.sh/uv/install.sh | sh
-  uv venv ~/.appa/ansible/.venv
-  uv pip install 'ansible>=14.0.0'
-
-Or install Ansible directly:
-  pip install ansible
-  (or: sudo apt install ansible / brew install ansible)
-`)
+var errAnsibleMissing = fmt.Errorf("ansible-playbook not found on PATH; see the User Guide at https://github.com/theolujay/appa#readme")
 
 // runCmd is a convenience wrapper around exec.Command that
 // streams stdout/stderr to the terminal.

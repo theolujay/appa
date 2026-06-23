@@ -101,7 +101,7 @@ func statusFunc(_ *cobra.Command, args []string) error {
 	case p.SetupDone && sshOK:
 		fmt.Print("  Checking API health...\n")
 		hClient := &http.Client{Timeout: 5 * time.Second}
-		resp, err := hClient.Get(p.BaseAPIURL + "/v1/healthcheck")
+		resp, err := hClient.Get(p.APIBaseURL + "/v1/healthcheck")
 		if err != nil {
 			return fmt.Errorf("unable to reach API: %w", err)
 		}
@@ -271,8 +271,8 @@ func upgradeFunc(args []string, version string) error {
 	fmt.Print(out)
 
 	output.Success("Waiting for API...")
-	apiURL := p.BaseAPIURL + "/v1/healthcheck"
-	if p.BaseAPIURL == "" {
+	apiURL := p.APIBaseURL + "/v1/healthcheck"
+	if p.APIBaseURL == "" {
 		apiURL = fmt.Sprintf("http://%s:8080/v1/healthcheck", p.SSHHost)
 	}
 	if err := pollHealth(apiURL, 60*time.Second); err != nil {

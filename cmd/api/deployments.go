@@ -349,9 +349,9 @@ func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Re
 	user := app.contextGetUser(r)
 
 	var q struct {
-		Status    string
-		ProjectName   string
-		ProjectID int64
+		Status      string
+		ProjectName string
+		ProjectID   int64
 		da.Filters
 	}
 

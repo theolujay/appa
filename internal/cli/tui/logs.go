@@ -15,8 +15,6 @@ import (
 	"github.com/theolujay/appa/internal/hub"
 )
 
-const logViewerTitle = " Deployment Logs "
-
 var phaseColors = map[string]color.Color{
 	"prepare": lipgloss.Color("#8BE9FD"),
 	"build":   lipgloss.Color("#F1FA8C"),

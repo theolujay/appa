@@ -126,7 +126,7 @@ func deployFunc(args []string, quiet, verbose bool) error {
 		return fmt.Errorf("server %q has not been set up: run 'appa setup %s' first", pCfg.Target, pCfg.Target)
 	}
 
-	if iCfg.BaseAPIURL == "" {
+	if iCfg.APIBaseURL == "" {
 		return fmt.Errorf("server %q has no API URL: run 'appa setup %s'", pCfg.Target, pCfg.Target)
 	}
 
@@ -173,7 +173,7 @@ func deployFunc(args []string, quiet, verbose bool) error {
 	output.Success("%s shipped to %s", pCfg.Source, serverRemoteDir)
 
 	output.Section("Ensuring project exists on server")
-	api := newAPIClient(iCfg.BaseAPIURL)
+	api := newAPIClient(iCfg.APIBaseURL)
 	projectID, err := api.ensureProject(name)
 	if err != nil {
 		return fmt.Errorf("ensure project: %w", err)
@@ -194,7 +194,7 @@ func deployFunc(args []string, quiet, verbose bool) error {
 		return fmt.Errorf("marshal request: %w", err)
 	}
 
-	resp, err := http.Post(iCfg.BaseAPIURL+"/v1/deployments", "application/json", bytes.NewReader(payload))
+	resp, err := http.Post(iCfg.APIBaseURL+"/v1/deployments", "application/json", bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("api call failed: %w", err)
 	}

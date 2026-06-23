@@ -92,12 +92,12 @@ func preflightFunc(_ *cobra.Command, args []string, skipVerify bool, noTTY bool)
 				var errs []error
 				ports := []int{p.SSHPort, 80, 443}
 				for _, port := range ports {
-			conn, err := net.DialTimeout("tcp", net.JoinHostPort(p.SSHHost, fmt.Sprintf("%d", port)), 3*time.Second)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("Port %d not reachable from here", port))
-					continue
-				}
-				conn.Close()
+					conn, err := net.DialTimeout("tcp", net.JoinHostPort(p.SSHHost, fmt.Sprintf("%d", port)), 3*time.Second)
+					if err != nil {
+						errs = append(errs, fmt.Errorf("port %d not reachable from here", port))
+						continue
+					}
+					conn.Close()
 				}
 				if len(errs) > 0 {
 					err := errors.Join(errs...)

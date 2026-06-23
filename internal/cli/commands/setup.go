@@ -33,7 +33,7 @@ func SetupCmd() *cobra.Command {
 		skipTags   string
 		skipVerify bool
 		opPubKey   string
-		verbose		bool
+		verbose    bool
 	)
 
 	cmd := &cobra.Command{
@@ -135,12 +135,12 @@ func setupFunc(args []string, opPubKey, tags, skipTags string, skipVerify, force
 
 	extraVars := map[string]any{
 		"appa_server_domain": cfg.Domain,
-		"appa_version":         vcs.DockerTag(),
-		"cloudflare_token":     cfg.CloudflareToken,
-		"smtp_host":            cfg.SMTPHost,
-		"smtp_port":            cfg.SMTPPort,
-		"smtp_username":        cfg.SMTPUsername,
-		"smtp_password":        cfg.SMTPPassword,
+		"appa_version":       vcs.DockerTag(),
+		"cloudflare_token":   cfg.CloudflareToken,
+		"smtp_host":          cfg.SMTPHost,
+		"smtp_port":          cfg.SMTPPort,
+		"smtp_username":      cfg.SMTPUsername,
+		"smtp_password":      cfg.SMTPPassword,
 
 		"deploy_user": map[string]any{
 			"name":                ansible.UserDeploy,
@@ -183,17 +183,14 @@ func setupFunc(args []string, opPubKey, tags, skipTags string, skipVerify, force
 	}
 
 	output.Section("Waiting for Appa API to become reachable")
-	apiURL := fmt.Sprintf("https://%s", cfg.Domain)
-	if cfg.Domain == "" {
-		apiURL = fmt.Sprintf("http://%s", cfg.SSHHost)
-	}
+	apiURL := apiBaseURL(cfg)
 	healthURL := apiURL + "/v1/healthcheck"
 	if err = pollHealth(healthURL, 60*time.Second); err != nil {
 		return fmt.Errorf("API health check failed: %w", err)
 	}
 	output.Success("Appa API is reachable at %s", healthURL)
 
-	cfg.BaseAPIURL = apiURL
+	cfg.APIBaseURL = apiURL
 	cfg.SetupDone = true
 	if err = config.SaveServer(cfg); err != nil {
 		return fmt.Errorf("save server: %w", err)
@@ -247,12 +244,12 @@ func applyFunc(args []string, tags, skipTags string, skipVerify, verbose bool) e
 
 	extraVars := map[string]any{
 		"appa_server_domain": cfg.Domain,
-		"appa_version":         vcs.DockerTag(),
-		"cloudflare_token":     cfg.CloudflareToken,
-		"smtp_host":            cfg.SMTPHost,
-		"smtp_port":            cfg.SMTPPort,
-		"smtp_username":        cfg.SMTPUsername,
-		"smtp_password":        cfg.SMTPPassword,
+		"appa_version":       vcs.DockerTag(),
+		"cloudflare_token":   cfg.CloudflareToken,
+		"smtp_host":          cfg.SMTPHost,
+		"smtp_port":          cfg.SMTPPort,
+		"smtp_username":      cfg.SMTPUsername,
+		"smtp_password":      cfg.SMTPPassword,
 	}
 
 	playbook := ansible.Playbook{
@@ -305,6 +302,17 @@ func runAnsible(p ansible.Playbook, label string, verbose bool) error {
 	err := ansible.RunPlaybook(p)
 	s.Stop(err == nil)
 	return err
+}
+
+// apiBaseURL returns the API base URL for health checks and config storage.
+func apiBaseURL(cfg config.ServerConfig) string {
+	if cfg.Domain != "" {
+		return fmt.Sprintf("https://%s", cfg.Domain)
+	}
+	if cfg.APIPort > 0 {
+		return fmt.Sprintf("http://%s:%d", cfg.SSHHost, cfg.APIPort)
+	}
+	return fmt.Sprintf("http://%s", cfg.SSHHost)
 }
 
 // pollHealth repeatedly checks the Appa API health endpoint until it returns 200 OK

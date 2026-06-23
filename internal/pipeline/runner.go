@@ -195,17 +195,6 @@ func (p *Pipeline) restartContainer(ctx context.Context, id int64) (string, erro
 	return p.startContainer(ctx, id)
 }
 
-// getPort finds and returns an available TCP port by binding to port 0 on localhost.
-func getPort() (int, error) {
-	// the port number is automatically chosen with 0 as port in address parameter
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("listen on free port: %w", err)
-	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port, nil
-}
-
 // caddyLogFilter removes Caddy HTTP access logs from an input stream.
 // It is used to prevent the deployment logs from being flooded with routine request information.
 func (p *Pipeline) caddyLogFilter(r io.Reader) io.Reader {

@@ -203,12 +203,6 @@ func (m *PreflightModel) View() tea.View {
 	return v
 }
 
-// renderCheck accepts progress to avoid reading from the model while rendering
-func (m *PreflightModel) renderHeader() string {
-	// kept for compatibility; NewPreflightModel already cached styles
-	return lipgloss.JoinVertical(lipgloss.Left, m.titleStyle.Render("Preflight Checks"), m.subtitleStyle.Render("Press q to quit"))
-}
-
 func (m *PreflightModel) renderCheck(i int, c checkItem, progress float64) string {
 	idx := i + 1
 
@@ -225,16 +219,16 @@ func (m *PreflightModel) renderCheck(i int, c checkItem, progress float64) strin
 		frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 		frame := frames[int(amount*float64(len(frames)))%len(frames)]
 		icon = m.runningStyle.Render(frame)
-		status = m.runningStyle.Copy().Bold(true).Render("checking")
+		status = m.runningStyle.Render("checking")
 	case checkOK:
 		icon = m.okStyle.Render("✓")
-		status = m.okStyle.Copy().Bold(false).Render("passed")
+		status = m.okStyle.Bold(false).Render("passed")
 	case checkFail:
 		icon = m.failStyle.Render("✗")
-		status = m.failStyle.Copy().Bold(false).Render("failed")
+		status = m.failStyle.Bold(false).Render("failed")
 	case checkWarn:
 		icon = m.warnStyle.Render("!")
-		status = m.warnStyle.Copy().Bold(false).Render("warning")
+		status = m.warnStyle.Bold(false).Render("warning")
 	}
 
 	num := m.numStyle.Render(fmt.Sprintf("%02d", idx))
@@ -247,29 +241,6 @@ func (m *PreflightModel) renderCheck(i int, c checkItem, progress float64) strin
 	}
 
 	return fmt.Sprintf("  %s %s %s%s  %s", num, icon, label, extra, status)
-}
-
-func (m *PreflightModel) renderSummary() string {
-	var clr color.Color
-	var label string
-	switch {
-	case m.Failures > 0:
-		clr = lipgloss.Color("#FF5555")
-		label = fmt.Sprintf("✗ %d failure(s)", m.Failures)
-		if m.Warnings > 0 {
-			label += fmt.Sprintf(", %d warning(s)", m.Warnings)
-		}
-	case m.Warnings > 0:
-		clr = lipgloss.Color("#F1FA8C")
-		label = fmt.Sprintf("✓ All critical checks passed (%d warning(s))", m.Warnings)
-	default:
-		clr = lipgloss.Color("#50FA7B")
-		label = "✓ All checks passed"
-	}
-
-	style := lipgloss.NewStyle().Bold(true).Foreground(clr).Padding(0, 2).Border(lipgloss.RoundedBorder()).BorderForeground(clr)
-
-	return style.Render(label)
 }
 
 // renderSummaryWith renders summary using provided snapshots to avoid locking inside

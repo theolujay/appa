@@ -44,7 +44,8 @@ type ServerConfig struct {
 	SMTPUsername    string `toml:"smtp_username"`
 	SMTPPassword    string `toml:"smtp_password"`
 	SetupDone       bool   `toml:"setup_done"`
-	BaseAPIURL      string `toml:"base_api_url,omitempty"`
+	APIBaseURL      string `toml:"api_base_url,omitempty"`
+	APIPort         int    `toml:"api_port,omitempty"`
 }
 
 type ProjectConfig struct {
@@ -371,19 +372,18 @@ func Edit(kind Kind, name string) error {
 		}
 
 		if oldName != "" {
-		output.Success(
-			"%s config %q updated and renamed to %q",
-			cases.Title(language.English).String(string(kind)),
-			oldName,
-			name,
-		)
+			output.Success(
+				"%s config %q updated and renamed to %q",
+				cases.Title(language.English).String(string(kind)),
+				oldName,
+				name,
+			)
 		} else {
-		output.Success(
-			"%s config %q updated",
-			cases.Title(language.English).String(string(kind)),
-			name,
-
-		)
+			output.Success(
+				"%s config %q updated",
+				cases.Title(language.English).String(string(kind)),
+				name,
+			)
 		}
 		return nil
 	}

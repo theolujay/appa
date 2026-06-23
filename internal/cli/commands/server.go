@@ -37,7 +37,7 @@ func ServerCmd() *cobra.Command {
 func serverInitCmd() *cobra.Command {
 	var (
 		opName string
-		host string
+		host   string
 	)
 
 	cmd := &cobra.Command{
@@ -72,7 +72,7 @@ func serverInitCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&host, "host", "h", "", "SSH Target server (e.g. user@203.0.113.10)")
+	cmd.Flags().StringVar(&host, "host", "", "SSH Target server (e.g. user@203.0.113.10)")
 	cmd.Flags().StringVarP(&opName, "op-name", "", "", "Target server user name to set (default -> '$(whoami)')")
 
 	return cmd
@@ -92,8 +92,12 @@ After saving, the file is validated. If invalid, you can re-edit or abort.`,
 }
 
 func serverSetHostCmd() *cobra.Command {
-	var identityFile string
-	var skipVerify bool
+	var (
+		identityFile string
+		skipVerify   bool
+		apiPort      int
+	)
+
 	cmd := &cobra.Command{
 		Use:   "set-host [name] [target]",
 		Short: "Set SSH target for a server config",
@@ -150,9 +154,10 @@ func serverSetHostCmd() *cobra.Command {
 				}
 			}
 
-			return serverSetHostFunc([]string{name, target}, identityFile, skipVerify)
+			return serverSetHostFunc([]string{name, target}, identityFile, skipVerify, apiPort)
 		},
 	}
+	cmd.Flags().IntVar(&apiPort, "port", 0, "API port (e.g. 8080 for Vagrant forwarded port; default 80 for http)")
 	cmd.Flags().StringVarP(
 		&identityFile, "identity-file", "i", "", "Path to SSH private key",
 	)
@@ -208,7 +213,7 @@ func serverEditFunc(_ *cobra.Command, args []string) error {
 	return config.Edit(config.Server, name)
 }
 
-func serverSetHostFunc(args []string, identityFile string, skipVerify bool) error {
+func serverSetHostFunc(args []string, identityFile string, skipVerify bool, apiPort int) error {
 	name, target := args[0], args[1]
 	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
@@ -235,6 +240,9 @@ func serverSetHostFunc(args []string, identityFile string, skipVerify bool) erro
 	cfg.SSHUser = user
 	cfg.SSHHost = host
 	cfg.SSHPort = port
+	if apiPort > 0 {
+		cfg.APIPort = apiPort
+	}
 	if identityFile != "" {
 		abs, err := filepath.Abs(identityFile)
 		if err == nil {

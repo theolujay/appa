@@ -159,4 +159,3 @@ func BoldRed(s string) string {
 func Faint(s string) string {
 	return lipgloss.NewStyle().Foreground(Gray).Render(s)
 }
-

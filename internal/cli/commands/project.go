@@ -126,11 +126,11 @@ func getLatestDeployment(name string) (int64, string, error) {
 	if !iCfg.SetupDone {
 		return 0, "", fmt.Errorf("server %q has not been set up", pCfg.Target)
 	}
-	if iCfg.BaseAPIURL == "" {
+	if iCfg.APIBaseURL == "" {
 		return 0, "", fmt.Errorf("server %q has no API URL", pCfg.Target)
 	}
 
-	apiURL := iCfg.BaseAPIURL
+	apiURL := iCfg.APIBaseURL
 	url := fmt.Sprintf("%s/v1/deployments?project_name=%s&sort=-id&page_size=1", apiURL, name)
 	resp, err := http.Get(url)
 	if err != nil {
