@@ -9,40 +9,45 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 	"github.com/theolujay/appa/internal/cli/config"
+	"github.com/theolujay/appa/internal/cli/output"
 	"github.com/theolujay/appa/internal/cli/ssh"
 	"github.com/theolujay/appa/internal/cli/tui"
 )
 
 func PreflightCmd() *cobra.Command {
 	var skipVerify bool
+	var noTTY bool
 	cmd := &cobra.Command{
 		Use:   "preflight <name>",
-		Short: "Run preflight checks on a target instance",
+		Short: "Run preflight checks on a target server",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return preflightFunc(cmd, args, skipVerify)
+			return preflightFunc(cmd, args, skipVerify, noTTY)
 		},
 	}
 	cmd.Flags().BoolVar(
 		&skipVerify, "skip-verify", false, "Skip SSH host key verification",
 	)
+	cmd.Flags().BoolVar(
+		&noTTY, "no-tty", false, "Run in non-interactive mode (no TUI)",
+	)
 	return cmd
 }
 
-// preflightFunc performs comprehensive preflight checks on a target instance,
+// preflightFunc performs comprehensive preflight checks on a target server,
 // validating SSH connectivity, OS compatibility, required ports, DNS resolution,
 // Docker installation status, and configuration requirements.
-func preflightFunc(_ *cobra.Command, args []string, skipVerify bool) error {
+func preflightFunc(_ *cobra.Command, args []string, skipVerify bool, noTTY bool) error {
 	name := args[0]
-	if !config.InstanceExists(name) {
+	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
-	p, err := config.LoadInstance(name)
+	p, err := config.LoadServer(name)
 	if err != nil {
 		return err
 	}
 	if p.SSHHost == "" {
-		return fmt.Errorf("no SSH target set for %q; run 'appa instance set-host %s user@host': %w", name, name, errNoSSHTarget)
+		return fmt.Errorf("no SSH target set for %q; run 'appa server set-host %s user@host': %w", name, name, errNoSSHTarget)
 	}
 
 	clientConfig := ssh.Client{
@@ -55,7 +60,7 @@ func preflightFunc(_ *cobra.Command, args []string, skipVerify bool) error {
 
 	checks := []tui.Check{
 		{
-			Label: "Instance exists",
+			Label: "Server exists",
 			Fn: func() (bool, string, bool) {
 				return true, "", false
 			},
@@ -95,7 +100,7 @@ func preflightFunc(_ *cobra.Command, args []string, skipVerify bool) error {
 			},
 		},
 		{
-			Label: "Domain resolves to instance IP",
+			Label: "Domain resolves to server IP",
 			Fn: func() (bool, string, bool) {
 				if p.Domain == "" {
 					return true, "No domain configured", true
@@ -140,6 +145,10 @@ func preflightFunc(_ *cobra.Command, args []string, skipVerify bool) error {
 		},
 	}
 
+	if noTTY {
+		return runChecksPlain(checks)
+	}
+
 	model := tui.NewPreflightModel(checks)
 	pProg := tea.NewProgram(model)
 	m, err := pProg.Run()
@@ -153,5 +162,28 @@ func preflightFunc(_ *cobra.Command, args []string, skipVerify bool) error {
 		}
 	}
 
+	return nil
+}
+
+func runChecksPlain(checks []tui.Check) error {
+	failures := 0
+	for _, c := range checks {
+		ok, info, warn := c.Fn()
+		switch {
+		case !ok:
+			output.Check(c.Label, false)
+			failures++
+		case warn:
+			output.Check(c.Label, true)
+		default:
+			output.Check(c.Label, true)
+		}
+		if info != "" {
+			fmt.Printf("  %s\n", info)
+		}
+	}
+	if failures > 0 {
+		return fmt.Errorf("preflight failed with %d failure(s)", failures)
+	}
 	return nil
 }

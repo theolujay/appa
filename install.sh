@@ -271,6 +271,42 @@ spin_stop
 # --- Cleanup ---
 rm -f "$archive" "$checksums"
 
+# --- Install uv and Ansible ---
+printf '\n'
+info "Installing runtime dependencies..."
+
+if ! has uv; then
+  spin_start "Installing uv..."
+  if has curl; then
+    curl -fsSL https://astral.sh/uv/install.sh | sh
+  elif has wget; then
+    wget -qO- https://astral.sh/uv/install.sh | sh
+  fi
+  spin_stop
+  completed "uv installed"
+
+  # Ensure uv is on PATH for the next steps
+  export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+fi
+
+SPIN_PID=""
+if has uv; then
+  APPA_ANSIBLE_DIR="${HOME}/.appa/ansible"
+  mkdir -p "$APPA_ANSIBLE_DIR"
+
+  spin_start "Creating Python venv..."
+  uv venv "$APPA_ANSIBLE_DIR/.venv" 2>/dev/null
+  spin_stop
+
+  spin_start "Installing Ansible..."
+  uv pip install 'ansible>=14.0.0' 2>/dev/null
+  spin_stop
+  completed "Ansible installed"
+
+  info "  Appa will manage this venv at ~/.appa/ansible/.venv/"
+  info "  To remove it: rm -rf ~/.appa/ansible/.venv"
+fi
+
 # --- Done ---
 printf '\n'
 printf '%s' "${BLUE}"

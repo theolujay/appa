@@ -18,7 +18,7 @@ import (
 func StatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status <name>",
-		Short: "Show instance health and service status",
+		Short: "Show server health and service status",
 		Args:  cobra.ExactArgs(1),
 		RunE:  statusFunc,
 	}
@@ -68,14 +68,14 @@ func UpgradeCmd() *cobra.Command {
 	return cmd
 }
 
-// statusFunc checks and displays the health status of an instance, including
+// statusFunc checks and displays the health status of a server, including
 // SSH connectivity, API health, Docker Compose services, and disk usage.
 func statusFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
-	if !config.InstanceExists(name) {
+	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
-	p, err := config.LoadInstance(name)
+	p, err := config.LoadServer(name)
 	if err != nil {
 		return fmt.Errorf("load config %q: %w", name, err)
 	}
@@ -149,7 +149,7 @@ func statusFunc(_ *cobra.Command, args []string) error {
 	case !sshOK:
 		output.Warn("Cannot check further: SSH not reachable")
 	default:
-		output.Warn("Instance not yet set up; run 'appa setup %s'", name)
+		output.Warn("Server not yet set up; run 'appa setup %s'", name)
 	}
 	return nil
 }
@@ -158,10 +158,10 @@ func statusFunc(_ *cobra.Command, args []string) error {
 // with optional service filtering and line count limits.
 func logsFunc(args []string, service string, tail int) error {
 	name := args[0]
-	if !config.InstanceExists(name) {
+	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
-	p, err := config.LoadInstance(name)
+	p, err := config.LoadServer(name)
 	if err != nil {
 		return fmt.Errorf("load config %q: %w", name, err)
 	}
@@ -193,10 +193,10 @@ func logsFunc(args []string, service string, tail int) error {
 // optionally limiting to a specific service.
 func restartFunc(args []string, service string) error {
 	name := args[0]
-	if !config.InstanceExists(name) {
+	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
-	p, err := config.LoadInstance(name)
+	p, err := config.LoadServer(name)
 	if err != nil {
 		return fmt.Errorf("load config %q: %w", name, err)
 	}
@@ -229,10 +229,10 @@ func restartFunc(args []string, service string) error {
 // version tag. It waits for the API to become healthy after upgrade.
 func upgradeFunc(args []string, version string) error {
 	name := args[0]
-	if !config.InstanceExists(name) {
+	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
-	p, err := config.LoadInstance(name)
+	p, err := config.LoadServer(name)
 	if err != nil {
 		return fmt.Errorf("load config %q: %w", name, err)
 	}

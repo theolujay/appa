@@ -10,18 +10,7 @@ import (
 
 	vd "github.com/theolujay/appa/internal/validator"
 
-	"github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
-)
-
-const (
-	pqUniqueViolation = "23505"
-	pqUsersEmailKey   = "users_email_key"
-)
-
-var (
-	ErrDuplicateEmail = errors.New("duplicate email")
-	// ErrInvalidCredentials = errors.New("invalid credentials")
 )
 
 var AnonymousUser = &User{}
@@ -157,12 +146,9 @@ func (m UserModel) Insert(user *User) error {
 
 	err := m.DB.QueryRowContext(ctx, query, args...).Scan(&user.ID, &user.CreatedAt, &user.Version)
 	if err != nil {
-		var pqErr *pq.Error
 		switch {
-		case errors.As(err, &pqErr):
-			if pqErr.Code == pqUniqueViolation && pqErr.Constraint == pqUsersEmailKey {
-				return ErrDuplicateEmail
-			}
+		case isUniqueViolation(err, pqUsersEmailKey):
+			return ErrDuplicateEmail
 		}
 		return fmt.Errorf("users.insert: %w", err)
 	}
@@ -232,12 +218,9 @@ func (m UserModel) Update(user *User) error {
 	err := m.DB.QueryRowContext(ctx, query, args...).Scan(&user.Version)
 
 	if err != nil {
-		var pqErr *pq.Error
 		switch {
-		case errors.As(err, &pqErr):
-			if pqErr.Code == pqUniqueViolation && pqErr.Constraint == pqUsersEmailKey {
-				return ErrDuplicateEmail
-			}
+		case isUniqueViolation(err, pqUsersEmailKey):
+			return ErrDuplicateEmail
 		case errors.Is(err, sql.ErrNoRows):
 			return ErrEditConflict
 		default:

@@ -6,6 +6,7 @@ package vcs
 
 import (
 	"runtime/debug"
+	"strings"
 )
 
 func Version() string {
@@ -14,4 +15,11 @@ func Version() string {
 		return bi.Main.Version
 	}
 	return ""
+}
+
+// DockerTag returns a Docker-safe version tag by replacing
+// characters invalid in image references (e.g. '+') with hyphens.
+func DockerTag() string {
+	v := Version()
+	return strings.ReplaceAll(v, "+", "-")
 }

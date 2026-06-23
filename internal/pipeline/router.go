@@ -155,7 +155,7 @@ func (r *Router) RestoreRoutes(dm data.DeploymentModeler) error {
 	}
 	// A user ID of 0 is treated as a wildcard
 	// and fetches deployments for all users.
-	deployments, metadata, err := dm.GetAllForUser(0, running, "", filters)
+	deployments, metadata, err := dm.GetAllForUser(0, running, 0, filters)
 	if err != nil {
 		return fmt.Errorf("failed to list %d deployments for sync: %w", metadata.TotalRecords, err)
 	}

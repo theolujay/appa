@@ -29,7 +29,7 @@ func BasePath(p string) (string, error) {
 	return filepath.Base(path), err
 }
 
-type InstanceConfig struct {
+type ServerConfig struct {
 	Name            string `toml:"name"`
 	SSHHost         string `toml:"ssh_host"`
 	SSHUser         string `toml:"ssh_user"`
@@ -56,13 +56,13 @@ type ProjectConfig struct {
 type Kind string
 
 const (
-	Instance Kind = "instance"
-	Project  Kind = "project"
+	Server  Kind = "server"
+	Project Kind = "project"
 )
-const ServerDeployDir = "/opt/appa/builds"
+const ServerRemoteDir = "/opt/appa/builds"
 
-func DefaultInstance(name string) InstanceConfig {
-	return InstanceConfig{
+func DefaultServer(name string) ServerConfig {
+	return ServerConfig{
 		Name:     name,
 		SSHUser:  "root",
 		SSHPort:  22,
@@ -78,8 +78,8 @@ func DefaultProject(name, source string) ProjectConfig {
 }
 
 var kindDirs = map[Kind]string{
-	Instance: "instances",
-	Project:  "projects",
+	Server:  "servers",
+	Project: "projects",
 }
 
 func baseDir() string {
@@ -98,7 +98,13 @@ func PathFor(k Kind, name string) string {
 	return filepath.Join(dirFor(k, name), "config.toml")
 }
 
-func load[T InstanceConfig | ProjectConfig](path string) (T, error) {
+func renameDirFor(k Kind, old, new string) error {
+	oldPath := dirFor(k, old)
+	newPath := filepath.Join(filepath.Dir(oldPath), new)
+	return os.Rename(oldPath, newPath)
+}
+
+func load[T ServerConfig | ProjectConfig](path string) (T, error) {
 	var cfg T
 	_, err := toml.DecodeFile(path, &cfg)
 	if err != nil {
@@ -107,8 +113,8 @@ func load[T InstanceConfig | ProjectConfig](path string) (T, error) {
 	return cfg, nil
 }
 
-func LoadInstance(name string) (InstanceConfig, error) {
-	return load[InstanceConfig](PathFor(Instance, name))
+func LoadServer(name string) (ServerConfig, error) {
+	return load[ServerConfig](PathFor(Server, name))
 }
 
 func LoadProject(name string) (ProjectConfig, error) {
@@ -124,12 +130,12 @@ func writeTOML(path string, v any) error {
 	return toml.NewEncoder(f).Encode(v)
 }
 
-func SaveInstance(cfg InstanceConfig) error {
-	dir := dirFor(Instance, cfg.Name)
+func SaveServer(cfg ServerConfig) error {
+	dir := dirFor(Server, cfg.Name)
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("create instance dir: %w", err)
+		return fmt.Errorf("create server dir: %w", err)
 	}
-	return writeTOML(PathFor(Instance, cfg.Name), cfg)
+	return writeTOML(PathFor(Server, cfg.Name), cfg)
 }
 
 func SaveProject(cfg ProjectConfig) error {
@@ -140,21 +146,21 @@ func SaveProject(cfg ProjectConfig) error {
 	return writeTOML(PathFor(Project, cfg.Name), cfg)
 }
 
-func ListInstances() ([]InstanceConfig, error) {
-	d := filepath.Join(baseDir(), kindDirs[Instance])
+func ListServers() ([]ServerConfig, error) {
+	d := filepath.Join(baseDir(), kindDirs[Server])
 	entries, err := os.ReadDir(d)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("list instances: %w", err)
+		return nil, fmt.Errorf("list servers: %w", err)
 	}
-	var cfgs []InstanceConfig
+	var cfgs []ServerConfig
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
-		cfg, err := LoadInstance(e.Name())
+		cfg, err := LoadServer(e.Name())
 		if err != nil {
 			continue
 		}
@@ -186,11 +192,11 @@ func ListProjects() ([]ProjectConfig, error) {
 	return cfgs, nil
 }
 
-func InstanceExists(name string) bool {
+func ServerExists(name string) bool {
 	if !ValidName(name) {
 		return false
 	}
-	_, err := os.Stat(PathFor(Instance, name))
+	_, err := os.Stat(PathFor(Server, name))
 	return err == nil
 }
 
@@ -202,7 +208,7 @@ func ProjectExists(name string) bool {
 	return err == nil
 }
 
-func validateInstance(cfg InstanceConfig) error {
+func validateServer(cfg ServerConfig) error {
 	var errs []error
 	if !ValidName(cfg.Name) {
 		errs = append(errs, fmt.Errorf("invalid name %q", cfg.Name))
@@ -230,8 +236,8 @@ func validateProject(cfg ProjectConfig) error {
 	if cfg.Source == "" {
 		errs = append(errs, fmt.Errorf("source is required"))
 	}
-	if cfg.Target != "" && !InstanceExists(cfg.Target) {
-		errs = append(errs, fmt.Errorf("target instance %q not found", cfg.Target))
+	if cfg.Target != "" && !ServerExists(cfg.Target) {
+		errs = append(errs, fmt.Errorf("target server %q not found", cfg.Target))
 	}
 	return errors.Join(errs...)
 }
@@ -286,11 +292,11 @@ func Edit(kind Kind, name string) error {
 	path := PathFor(kind, name)
 	output.Section("Waiting for your editor to close %q config file...", name)
 
-	var instanceCfg InstanceConfig
+	var serverCfg ServerConfig
 	var projectCfg ProjectConfig
 	switch kind {
-	case Instance:
-		instanceCfg, err = LoadInstance(name)
+	case Server:
+		serverCfg, err = LoadServer(name)
 		if err != nil {
 			return err
 		}
@@ -312,18 +318,29 @@ func Edit(kind Kind, name string) error {
 		}
 
 		var vErr error
+		var oldName string
 		switch kind {
-		case Instance:
-			var cfg InstanceConfig
-			cfg, err = LoadInstance(name)
+		case Server:
+			var cfg ServerConfig
+			cfg, err = LoadServer(name)
 			if err == nil {
-				vErr = validateInstance(cfg)
+				vErr = validateServer(cfg)
+				if vErr == nil && serverCfg.Name != cfg.Name {
+					vErr = renameDirFor(kind, name, cfg.Name)
+					oldName = name
+					name = cfg.Name
+				}
 			}
 		case Project:
 			var cfg ProjectConfig
 			cfg, err = LoadProject(name)
 			if err == nil {
 				vErr = validateProject(cfg)
+				if vErr == nil && projectCfg.Name != cfg.Name {
+					vErr = renameDirFor(kind, name, cfg.Name)
+					oldName = name
+					name = cfg.Name
+				}
 			}
 		}
 		if vErr != nil {
@@ -333,10 +350,12 @@ func Edit(kind Kind, name string) error {
 		if err != nil {
 			var rErr error
 			switch kind {
-			case Instance:
-				rErr = SaveInstance(instanceCfg)
+			case Server:
+				rErr = SaveServer(serverCfg)
+				name = serverCfg.Name
 			case Project:
 				rErr = SaveProject(projectCfg)
+				name = projectCfg.Name
 			}
 			if rErr != nil {
 				return fmt.Errorf("failed to revert changes to %s %s config: %w", name, string(kind), rErr)
@@ -351,17 +370,29 @@ func Edit(kind Kind, name string) error {
 			continue
 		}
 
+		if oldName != "" {
+		output.Success(
+			"%s config %q updated and renamed to %q",
+			cases.Title(language.English).String(string(kind)),
+			oldName,
+			name,
+		)
+		} else {
 		output.Success(
 			"%s config %q updated",
 			cases.Title(language.English).String(string(kind)),
 			name,
+
 		)
+		}
 		return nil
 	}
 }
-func ServerDirFor(name string) string {
-	return filepath.Join(ServerDeployDir, name)
+
+func ServerRemoteDirFor(name string) string {
+	return filepath.Join(ServerRemoteDir, name)
 }
+
 func ParseProjectSource(c string) (string, error) {
 
 	if !strings.HasPrefix(c, "/") {

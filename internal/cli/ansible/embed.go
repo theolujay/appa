@@ -28,13 +28,10 @@ func ansibleExtractedDir() string {
 }
 
 // ensureExtracted extracts embedded Ansible
-// assetsto the local filesystem if missing.
+// assets to the local filesystem, overwriting
+// any existing files.
 func ensureExtracted() error {
 	dir := ansibleExtractedDir()
-	marker := filepath.Join(dir, "playbooks", "deploy-stack.yml")
-	if _, err := os.Stat(marker); err == nil {
-		return nil
-	}
 	return fs.WalkDir(ansibleFS, "_embed", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err

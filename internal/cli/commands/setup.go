@@ -15,7 +15,7 @@ import (
 	"github.com/theolujay/appa/internal/vcs"
 )
 
-// SetupCmd returns a command that performs the first-time provisioning of an Appa instance.
+// SetupCmd returns a command that performs the first-time provisioning of an Appa server.
 // It runs preflight checks, generates an Ansible inventory, and executes playbooks for
 // security hardening and stack deployment.
 //
@@ -36,14 +36,14 @@ func SetupCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "setup <name>",
-		Short: "First-time provisioning of an Appa instance",
+		Short: "First-time provisioning of an Appa server",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return setupFunc(args, opPubKey, force, tags, skipTags, skipVerify)
 		},
 	}
 
-	cmd.Flags().StringVarP(&opPubKey, "op-key", "", "", "SSH public key for instance username")
+	cmd.Flags().StringVarP(&opPubKey, "op-key", "", "", "SSH public key for server username")
 	cmd.Flags().BoolVar(&force, "force", false, "Skip preflight checks")
 	cmd.Flags().StringVar(&tags, "tags", "", "Only run Ansible tasks with these tags")
 	cmd.Flags().StringVar(&skipTags, "skip-tags", "", "Skip Ansible tasks with these tags")
@@ -52,7 +52,7 @@ func SetupCmd() *cobra.Command {
 	return cmd
 }
 
-// ApplyCmd returns a command that re-applies configuration changes to an existing instance.
+// ApplyCmd returns a command that re-applies configuration changes to an existing server.
 // It is intended to be idempotent and used for updating settings like domains or firewall rules.
 //
 // Example output:
@@ -87,10 +87,10 @@ func ApplyCmd() *cobra.Command {
 // inventory generation, and playbook execution.
 func setupFunc(args []string, opPubKey string, force bool, tags, skipTags string, skipVerify bool) error {
 	name := args[0]
-	if !config.InstanceExists(name) {
+	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
-	cfg, err := config.LoadInstance(name)
+	cfg, err := config.LoadServer(name)
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func setupFunc(args []string, opPubKey string, force bool, tags, skipTags string
 		return fmt.Errorf("%w: %s", errNoSSHTarget, name)
 	}
 	if cfg.SetupDone {
-		output.Warn("Instance %q has already been set up; use 'appa apply %s' for changes", name, name)
+		output.Warn("Server %q has already been set up; use 'appa apply %s' for changes", name, name)
 	}
 
 	skipVerify = skipVerify || cfg.SSHSkipVerify
@@ -106,7 +106,11 @@ func setupFunc(args []string, opPubKey string, force bool, tags, skipTags string
 	if !force {
 		fmt.Println("Running preflight checks...")
 		preflightCmd := PreflightCmd()
-		preflightCmd.SetArgs([]string{name, "--skip-verify=" + fmt.Sprintf("%t", skipVerify)})
+		preflightCmd.SetArgs([]string{
+			name,
+			"--skip-verify=" + fmt.Sprintf("%t", skipVerify),
+			"--no-tty",
+		})
 		if err = preflightCmd.Execute(); err != nil {
 			return fmt.Errorf("preflight failed: use --force to skip")
 		}
@@ -125,22 +129,29 @@ func setupFunc(args []string, opPubKey string, force bool, tags, skipTags string
 	}
 
 	extraVars := map[string]any{
-		"appa_instance_domain": cfg.Domain,
-		"appa_version":         vcs.Version(),
+		"appa_server_domain": cfg.Domain,
+		"appa_version":         vcs.DockerTag(),
 		"cloudflare_token":     cfg.CloudflareToken,
 		"smtp_host":            cfg.SMTPHost,
 		"smtp_port":            cfg.SMTPPort,
 		"smtp_username":        cfg.SMTPUsername,
 		"smtp_password":        cfg.SMTPPassword,
 
-		"operator_user": map[string]any{
-			"name":     cfg.OperatorUser,
-			"ssh_keys": []string{opPubKey},
-		},
 		"deploy_user": map[string]any{
-			"name":     ansible.UserDeploy,
-			"ssh_keys": []string{opPubKey},
+			"name":                ansible.UserDeploy,
+			"groups":              []string{"docker", "appa-admin"},
+			"sudo":                "ALL=(ALL) NOPASSWD: /usr/bin/systemctl, /usr/bin/docker",
+			"ssh_authorized_keys": splitKeys(opPubKey),
 		},
+	}
+
+	if cfg.OperatorUser != "" {
+		extraVars["operator_user"] = map[string]any{
+			"name":                cfg.OperatorUser,
+			"groups":              []string{"sudo", "appa-admin"},
+			"sudo":                "ALL=(ALL:ALL) ALL",
+			"ssh_authorized_keys": splitKeys(opPubKey),
+		}
 	}
 
 	if skipVerify {
@@ -183,12 +194,12 @@ func setupFunc(args []string, opPubKey string, force bool, tags, skipTags string
 
 	cfg.BaseAPIURL = apiURL
 	cfg.SetupDone = true
-	if err = config.SaveInstance(cfg); err != nil {
-		return fmt.Errorf("save instance: %w", err)
+	if err = config.SaveServer(cfg); err != nil {
+		return fmt.Errorf("save server: %w", err)
 	}
 
 	output.Section("Setup Complete")
-	output.Success("Instance %q is ready!", name)
+	output.Success("Server %q is ready!", name)
 	output.Success("  API URL: %s", healthURL)
 	return nil
 }
@@ -197,10 +208,10 @@ func setupFunc(args []string, opPubKey string, force bool, tags, skipTags string
 // re-running provisioning playbooks with specific tags.
 func applyFunc(args []string, tags, skipTags string, skipVerify bool) error {
 	name := args[0]
-	if !config.InstanceExists(name) {
+	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
-	cfg, err := config.LoadInstance(name)
+	cfg, err := config.LoadServer(name)
 	if err != nil {
 		return err
 	}
@@ -234,8 +245,8 @@ func applyFunc(args []string, tags, skipTags string, skipVerify bool) error {
 	}
 
 	extraVars := map[string]any{
-		"appa_instance_domain": cfg.Domain,
-		"appa_version":         vcs.Version(),
+		"appa_server_domain": cfg.Domain,
+		"appa_version":         vcs.DockerTag(),
 		"cloudflare_token":     cfg.CloudflareToken,
 		"smtp_host":            cfg.SMTPHost,
 		"smtp_port":            cfg.SMTPPort,
@@ -265,6 +276,15 @@ func applyFunc(args []string, tags, skipTags string, skipVerify bool) error {
 
 	output.Success("Configuration applied to %q", name)
 	return nil
+}
+
+// splitKeys returns a slice containing the given key,
+// or an empty slice if the key is empty.
+func splitKeys(s string) []string {
+	if s == "" {
+		return []string{}
+	}
+	return []string{s}
 }
 
 // pollHealth repeatedly checks the Appa API health endpoint until it returns 200 OK

@@ -20,6 +20,7 @@ func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.R
 		Source      string `json:"source"`
 		EnvVars     string `json:"env_vars"`
 		ProjectName string `json:"project_name"`
+		ProjectID   *int64 `json:"project_id,omitempty"`
 	}
 	err := app.readJSON(w, r, &p)
 	if err != nil {
@@ -27,17 +28,51 @@ func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	var project *da.Project
+
+	if p.ProjectName != "" {
+		project, err = app.models.Projects.GetByName(p.ProjectName)
+		if errors.Is(err, da.ErrRecordNotFound) {
+			project = &da.Project{
+				Name:   p.ProjectName,
+				UserID: &user.ID,
+			}
+			if user.IsAnonymous() {
+				project.UserID = nil
+			}
+			if err = app.models.Projects.Insert(project); err != nil {
+				app.serverErrorResponse(w, r, err)
+				return
+			}
+		} else if err != nil {
+			app.serverErrorResponse(w, r, err)
+			return
+		}
+	} else if p.ProjectID != nil {
+		project, err = app.models.Projects.Get(*p.ProjectID)
+		if err != nil {
+			switch {
+			case errors.Is(err, da.ErrRecordNotFound):
+				app.notFoundResponse(w, r)
+			default:
+				app.serverErrorResponse(w, r, err)
+			}
+			return
+		}
+	}
+
 	d := da.Deployment{
-		Source:      p.Source,
-		EnvVars:     &p.EnvVars,
-		ProjectName: p.ProjectName,
+		Source:  p.Source,
+		EnvVars: &p.EnvVars,
+	}
+	if project != nil {
+		d.ProjectID = &project.ID
 	}
 
 	if !user.IsAnonymous() {
 		d.UserID = &user.ID
 	}
-
-	if err = da.ValidateDeployment(&d); err != nil {
+	if err = da.ValidateDeployment(d); err != nil {
 		app.failedValidationResponse(w, r, err)
 		return
 	}
@@ -82,6 +117,7 @@ func (app *application) uploadProjectHandler(w http.ResponseWriter, r *http.Requ
 	defer file.Close()
 
 	envVars := r.FormValue("env_vars")
+	projectName := r.FormValue("project_name")
 
 	dir := uuid.New().String()
 	uploadDir := filepath.Join("/tmp", "appa-upload", dir)
@@ -101,6 +137,27 @@ func (app *application) uploadProjectHandler(w http.ResponseWriter, r *http.Requ
 
 	if !user.IsAnonymous() {
 		d.UserID = &user.ID
+	}
+
+	if projectName != "" {
+		project, err := app.models.Projects.GetByName(projectName)
+		if errors.Is(err, da.ErrRecordNotFound) {
+			project = &da.Project{
+				Name:   projectName,
+				UserID: &user.ID,
+			}
+			if user.IsAnonymous() {
+				project.UserID = nil
+			}
+			if err = app.models.Projects.Insert(project); err != nil {
+				app.serverErrorResponse(w, r, err)
+				return
+			}
+		} else if err != nil {
+			app.serverErrorResponse(w, r, err)
+			return
+		}
+		d.ProjectID = &project.ID
 	}
 
 	if err = app.models.Deployments.Create(&d); err != nil {
@@ -292,15 +349,32 @@ func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Re
 	user := app.contextGetUser(r)
 
 	var q struct {
-		Status  string
-		Project string
+		Status    string
+		ProjectName   string
+		ProjectID int64
 		da.Filters
 	}
 
 	qs := r.URL.Query()
 
 	q.Status = app.readString(qs, "status", "")
-	q.Project = app.readString(qs, "project", "")
+	q.ProjectName = app.readString(qs, "project_name", "")
+	pid, _ := app.readInt(qs, "project_id", 0)
+	q.ProjectID = int64(pid)
+
+	if q.ProjectName != "" && q.ProjectID == 0 {
+		p, err := app.models.Projects.GetByName(q.ProjectName)
+		if err != nil {
+			switch {
+			case errors.Is(err, da.ErrRecordNotFound):
+				app.notFoundResponse(w, r)
+			default:
+				app.serverErrorResponse(w, r, err)
+			}
+			return
+		}
+		q.ProjectID = p.ID
+	}
 
 	var errs []error
 	page, err := app.readInt(qs, "page", 1)
@@ -328,7 +402,7 @@ func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	d, m, err := app.models.Deployments.GetAllForUser(user.ID, q.Status, q.Project, q.Filters)
+	d, m, err := app.models.Deployments.GetAllForUser(user.ID, q.Status, q.ProjectID, q.Filters)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return

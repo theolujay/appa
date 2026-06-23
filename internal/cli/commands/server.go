@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os/user"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -12,18 +13,16 @@ import (
 	"github.com/theolujay/appa/internal/cli/ssh"
 )
 
-// InstanceCmd returns the root command for managing Appa instances.
-// It provides subcommands for initializing, editing, setting hosts, and listing configs.
-func InstanceCmd() *cobra.Command {
+func ServerCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "instance",
-		Short: "Manage Appa instances",
+		Use:   "server",
+		Short: "Manage Appa servers",
 	}
 
-	cmd.AddCommand(instanceInitCmd())
-	cmd.AddCommand(instanceEditCmd())
-	cmd.AddCommand(instanceSetHostCmd())
-	cmd.AddCommand(instanceListCmd())
+	cmd.AddCommand(serverInitCmd())
+	cmd.AddCommand(serverEditCmd())
+	cmd.AddCommand(serverSetHostCmd())
+	cmd.AddCommand(serverListCmd())
 	cmd.AddCommand(PreflightCmd())
 	cmd.AddCommand(SetupCmd())
 	cmd.AddCommand(ApplyCmd())
@@ -35,12 +34,12 @@ func InstanceCmd() *cobra.Command {
 	return cmd
 }
 
-func instanceInitCmd() *cobra.Command {
+func serverInitCmd() *cobra.Command {
 	var opName string
 
 	cmd := &cobra.Command{
 		Use:   "init [name]",
-		Short: "Create a new instance",
+		Short: "Create a new server",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			var name string
@@ -49,15 +48,15 @@ func instanceInitCmd() *cobra.Command {
 			}
 			if name == "" {
 				err := huh.NewInput().
-					Title("What do you want to name this instance?").
+					Title("What do you want to name this server?").
 					Placeholder("e.g. personal").
 					Value(&name).
 					Validate(func(s string) error {
 						if strings.TrimSpace(s) == "" {
 							return fmt.Errorf("name cannot be empty")
 						}
-						if config.InstanceExists(s) {
-							return fmt.Errorf("instance %q already exists", s)
+						if config.ServerExists(s) {
+							return fmt.Errorf("server %q already exists", s)
 						}
 						return nil
 					}).
@@ -66,33 +65,33 @@ func instanceInitCmd() *cobra.Command {
 					return err
 				}
 			}
-			return instanceInitFunc([]string{name}, opName)
+			return serverInitFunc([]string{name}, opName)
 		},
 	}
 
-	cmd.Flags().StringVarP(&opName, "op-name", "", "", "Target instance username to set (default -> '$(whoami)`)")
+	cmd.Flags().StringVarP(&opName, "op-name", "", "", "Target server username to set (default -> '$(whoami)`)")
 	return cmd
 }
 
-func instanceEditCmd() *cobra.Command {
+func serverEditCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "edit <name>",
-		Short: "Edit instance config in $EDITOR",
-		Long: `Opens the instance config in the system editor for direct TOML editing.
+		Short: "Edit server config in $EDITOR",
+		Long: `Opens the server config in the system editor for direct TOML editing.
 
 The editor is chosen from $APPA_EDITOR, $EDITOR, or defaults to "vi".
 After saving, the file is validated. If invalid, you can re-edit or abort.`,
 		Args: cobra.ExactArgs(1),
-		RunE: instanceEditFunc,
+		RunE: serverEditFunc,
 	}
 }
 
-func instanceSetHostCmd() *cobra.Command {
+func serverSetHostCmd() *cobra.Command {
 	var identityFile string
 	var skipVerify bool
 	cmd := &cobra.Command{
 		Use:   "set-host [name] [target]",
-		Short: "Set SSH target for an instance config",
+		Short: "Set SSH target for a server config",
 		Args:  cobra.MaximumNArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
 			var name, target string
@@ -107,19 +106,19 @@ func instanceSetHostCmd() *cobra.Command {
 				var fields []huh.Field
 
 				if name == "" {
-					cfgs, err := config.ListInstances()
+					cfgs, err := config.ListServers()
 					if err != nil {
 						return err
 					}
 					if len(cfgs) == 0 {
-						return fmt.Errorf("no instances found, run 'appa instance init' first")
+						return fmt.Errorf("no servers found, run 'appa server init' first")
 					}
 					options := []huh.Option[string]{}
 					for _, cfg := range cfgs {
 						options = append(options, huh.NewOption(cfg.Name, cfg.Name))
 					}
 					fields = append(fields, huh.NewSelect[string]().
-						Title("Select an instance:").
+						Title("Select a server:").
 						Options(options...).
 						Value(&name))
 				}
@@ -146,7 +145,7 @@ func instanceSetHostCmd() *cobra.Command {
 				}
 			}
 
-			return instanceSetHostFunc([]string{name, target}, identityFile, skipVerify)
+			return serverSetHostFunc([]string{name, target}, identityFile, skipVerify)
 		},
 	}
 	cmd.Flags().StringVarP(
@@ -158,23 +157,22 @@ func instanceSetHostCmd() *cobra.Command {
 	return cmd
 }
 
-func instanceListCmd() *cobra.Command {
+func serverListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
-		Short: "List all instances",
+		Short: "List all servers",
 		Args:  cobra.NoArgs,
-		RunE:  instanceListFunc,
+		RunE:  serverListFunc,
 	}
 }
 
-// instanceInitFunc handles the creation of a new instance with validation.
-func instanceInitFunc(args []string, opName string) error {
+func serverInitFunc(args []string, opName string) error {
 	name := args[0]
-	if config.InstanceExists(name) {
-		return fmt.Errorf("instance %q already exists", name)
+	if config.ServerExists(name) {
+		return fmt.Errorf("server %q already exists", name)
 	}
 
-	cfg := config.DefaultInstance(name)
+	cfg := config.DefaultServer(name)
 	if opName == "" {
 		u, err := user.Current()
 		if err != nil {
@@ -185,29 +183,26 @@ func instanceInitFunc(args []string, opName string) error {
 	}
 	cfg.OperatorUser = opName
 
-	if err := config.SaveInstance(cfg); err != nil {
+	if err := config.SaveServer(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
-	output.Success("Instance %q created", name)
-	output.Success("\tNext: appa instance set-host %s user@host", name)
+	output.Success("Server %q created", name)
+	output.Success("\tNext: appa server set-host %s user@host", name)
 	return nil
 }
 
-// instanceEditFunc handles opening an instance config in the system editor for editing.
-// It supports validation and re-editing on invalid configuration.
-func instanceEditFunc(_ *cobra.Command, args []string) error {
+func serverEditFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
-	if !config.InstanceExists(name) {
+	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
 
-	return config.Edit(config.Instance, name)
+	return config.Edit(config.Server, name)
 }
 
-// instanceSetHostFunc sets the SSH target for an instance and tests the connection.
-func instanceSetHostFunc(args []string, identityFile string, skipVerify bool) error {
+func serverSetHostFunc(args []string, identityFile string, skipVerify bool) error {
 	name, target := args[0], args[1]
-	if !config.InstanceExists(name) {
+	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
 	user, host, port, err := parseTarget(target)
@@ -225,19 +220,25 @@ func instanceSetHostFunc(args []string, identityFile string, skipVerify bool) er
 	if err := client.TestConnect(); err != nil {
 		return fmt.Errorf("SSH connection test failed: %w", err)
 	}
-	cfg, err := config.LoadInstance(name)
+	cfg, err := config.LoadServer(name)
 	if err != nil {
 		return err
 	}
 	cfg.SSHUser = user
 	cfg.SSHHost = host
 	cfg.SSHPort = port
+	if identityFile != "" {
+		abs, err := filepath.Abs(identityFile)
+		if err == nil {
+			identityFile = abs
+		}
+	}
 	cfg.SSHIdentityFile = identityFile
 	cfg.SSHSkipVerify = skipVerify
-	if err := config.SaveInstance(cfg); err != nil {
-		return fmt.Errorf("save instance: %w", err)
+	if err := config.SaveServer(cfg); err != nil {
+		return fmt.Errorf("save server: %w", err)
 	}
-	// Since testing SSH connetion was successful, ignore error returned, as
+	// Since testing SSH connection was successful, ignore error returned, as
 	// anything could cause a temporary issue and this is only best-effort.
 	ip, _ := ssh.ResolveIP(host)
 	if ip != "" {
@@ -249,15 +250,14 @@ func instanceSetHostFunc(args []string, identityFile string, skipVerify bool) er
 	return nil
 }
 
-// instanceListFunc displays all instances and their current status.
-func instanceListFunc(_ *cobra.Command, _ []string) error {
-	cfgs, err := config.ListInstances()
+func serverListFunc(_ *cobra.Command, _ []string) error {
+	cfgs, err := config.ListServers()
 	if err != nil {
 		return err
 	}
 	if len(cfgs) == 0 {
-		output.Warn("No instance found.")
-		output.Success("Create one: appa instance init <name>")
+		output.Warn("No server found.")
+		output.Success("Create one: appa server init <name>")
 		return nil
 	}
 	var rows [][]string
@@ -280,8 +280,6 @@ func instanceListFunc(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-// parseTarget splits an SSH connection string into its components.
-// It supports formats like "user@host" and "user@host:port", defaulting to port 22.
 func parseTarget(target string) (user, host string, port int, err error) {
 	port = 22
 	at := strings.LastIndex(target, "@")

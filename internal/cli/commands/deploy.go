@@ -14,6 +14,76 @@ import (
 	"github.com/theolujay/appa/internal/cli/ssh"
 )
 
+// apiClient is a convenience wrapper for making authenticated API calls
+// to the Appa server. It embeds the base URL and provides helper methods.
+type apiClient struct {
+	baseURL string
+	client  *http.Client
+}
+
+func newAPIClient(baseURL string) *apiClient {
+	return &apiClient{
+		baseURL: baseURL,
+		client:  &http.Client{},
+	}
+}
+
+func (c *apiClient) ensureProject(name string) (*int64, error) {
+	body := struct {
+		Name string `json:"name"`
+	}{Name: name}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal project request: %w", err)
+	}
+
+	resp, err := c.client.Post(c.baseURL+"/v1/projects", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create project api call failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusCreated {
+		var result struct {
+			Project struct {
+				ID int64 `json:"id"`
+			} `json:"project"`
+		}
+		if err = json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return nil, fmt.Errorf("decode project response: %w", err)
+		}
+		return &result.Project.ID, nil
+	}
+
+	// If duplicate, look up the existing project
+	if resp.StatusCode == http.StatusUnprocessableEntity {
+		resp2, err := c.client.Get(c.baseURL + "/v1/projects?name=" + name)
+		if err != nil {
+			return nil, fmt.Errorf("lookup project api call failed: %w", err)
+		}
+		defer resp2.Body.Close()
+
+		if resp2.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("lookup project returned status %d", resp2.StatusCode)
+		}
+
+		var result struct {
+			Projects []struct {
+				ID int64 `json:"id"`
+			} `json:"projects"`
+		}
+		if err = json.NewDecoder(resp2.Body).Decode(&result); err != nil {
+			return nil, fmt.Errorf("decode project lookup response: %w", err)
+		}
+		if len(result.Projects) == 0 {
+			return nil, fmt.Errorf("project %q not found after creation attempt", name)
+		}
+		return &result.Projects[0].ID, nil
+	}
+
+	return nil, fmt.Errorf("create project returned status %d", resp.StatusCode)
+}
+
 func DeployCmd() *cobra.Command {
 	var quiet bool
 	cmd := &cobra.Command{
@@ -42,17 +112,17 @@ func deployFunc(args []string, quiet bool) error {
 		return fmt.Errorf("target not set: use 'appa project edit %s'", name)
 	}
 
-	iCfg, err := config.LoadInstance(pCfg.Target)
+	iCfg, err := config.LoadServer(pCfg.Target)
 	if err != nil {
-		return fmt.Errorf("load instance %q: %w", pCfg.Target, err)
+		return fmt.Errorf("load server %q: %w", pCfg.Target, err)
 	}
 
 	if !iCfg.SetupDone {
-		return fmt.Errorf("instance %q has not been set up: run 'appa setup %s' first", pCfg.Target, pCfg.Target)
+		return fmt.Errorf("server %q has not been set up: run 'appa setup %s' first", pCfg.Target, pCfg.Target)
 	}
 
 	if iCfg.BaseAPIURL == "" {
-		return fmt.Errorf("instance %q has no API URL: run 'appa setup %s'", pCfg.Target, pCfg.Target)
+		return fmt.Errorf("server %q has no API URL: run 'appa setup %s'", pCfg.Target, pCfg.Target)
 	}
 
 	info, err := os.Stat(pCfg.Source)
@@ -63,7 +133,7 @@ func deployFunc(args []string, quiet bool) error {
 		return fmt.Errorf("project source %q is not a directory", pCfg.Source)
 	}
 
-	serverDir := config.ServerDirFor(name)
+	serverRemoteDir := config.ServerRemoteDirFor(name)
 	src, err := config.ParseProjectSource(pCfg.Source)
 	if err != nil {
 		return fmt.Errorf("unable to parse path %q: %w", pCfg.Source, err)
@@ -84,18 +154,27 @@ func deployFunc(args []string, quiet bool) error {
 		rOut = io.Discard
 		rErr = io.Discard
 	}
-	if err := ssh.Rsync(client, src, serverDir, rOut, rErr); err != nil {
+	if err := ssh.Rsync(client, src, serverRemoteDir, rOut, rErr); err != nil {
 		return fmt.Errorf("rsync failed: %w", err)
 	}
-	output.Success("%s shipped to %s", pCfg.Source, serverDir)
+	output.Success("%s shipped to %s", pCfg.Source, serverRemoteDir)
+
+	output.Section("Ensuring project exists on server")
+	api := newAPIClient(iCfg.BaseAPIURL)
+	projectID, err := api.ensureProject(name)
+	if err != nil {
+		return fmt.Errorf("ensure project: %w", err)
+	}
 
 	output.Section("Triggering deployment")
 	body := struct {
 		Source      string `json:"source"`
 		ProjectName string `json:"project_name"`
+		ProjectID   *int64 `json:"project_id"`
 	}{
-		Source:      serverDir,
+		Source:      serverRemoteDir,
 		ProjectName: name,
+		ProjectID:   projectID,
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {

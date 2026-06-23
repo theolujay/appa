@@ -27,7 +27,7 @@
 
 - name: Generate random PostgreSQL password
   ansible.builtin.shell:
-    cmd: set -o pipefail && tr -dc A-Za-z0-9 </dev/urandom | head -c 32
+    cmd: set -o pipefail && tr -dc A-Za-z0-9 </dev/urandom | head -c 32 || true
     executable: /bin/bash
   register: pg_password_gen
   when: not pg_password_file.stat.exists

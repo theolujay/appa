@@ -119,19 +119,19 @@ func getLatestDeployment(name string) (int64, string, error) {
 		return 0, "", fmt.Errorf("target not set: use 'appa project edit %s'", name)
 	}
 
-	iCfg, err := config.LoadInstance(pCfg.Target)
+	iCfg, err := config.LoadServer(pCfg.Target)
 	if err != nil {
-		return 0, "", fmt.Errorf("load instance %q: %w", pCfg.Target, err)
+		return 0, "", fmt.Errorf("load server %q: %w", pCfg.Target, err)
 	}
 	if !iCfg.SetupDone {
-		return 0, "", fmt.Errorf("instance %q has not been set up", pCfg.Target)
+		return 0, "", fmt.Errorf("server %q has not been set up", pCfg.Target)
 	}
 	if iCfg.BaseAPIURL == "" {
-		return 0, "", fmt.Errorf("instance %q has no API URL", pCfg.Target)
+		return 0, "", fmt.Errorf("server %q has no API URL", pCfg.Target)
 	}
 
 	apiURL := iCfg.BaseAPIURL
-	url := fmt.Sprintf("%s/v1/deployments?project=%s&sort=-id&page_size=1", apiURL, name)
+	url := fmt.Sprintf("%s/v1/deployments?project_name=%s&sort=-id&page_size=1", apiURL, name)
 	resp, err := http.Get(url)
 	if err != nil {
 		return 0, "", fmt.Errorf("api call failed: %w", err)
@@ -242,7 +242,7 @@ func projectInitCmd() *cobra.Command {
 			return projectInitFunc([]string{source}, target, name)
 		},
 	}
-	cmd.Flags().StringVarP(&target, "target", "t", "", "Target instance name")
+	cmd.Flags().StringVarP(&target, "target", "t", "", "Target server name")
 	cmd.Flags().StringVarP(&name, "name", "n", "", "Project name (inferred from source if not specified)")
 	return cmd
 
@@ -294,7 +294,7 @@ func projectInitFunc(args []string, target, name string) error {
 		errs = append(errs, fmt.Errorf("project already exists: %s", name))
 	}
 
-	if target != "" && !config.InstanceExists(target) {
+	if target != "" && !config.ServerExists(target) {
 		errs = append(errs, fmt.Errorf("target not found: %s", target))
 	}
 
