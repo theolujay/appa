@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -86,15 +87,21 @@ func preflightFunc(_ *cobra.Command, args []string, skipVerify bool, noTTY bool)
 			},
 		},
 		{
-			Label: "Required ports reachable (22, 80, 443)",
+			Label: fmt.Sprintf("Required ports reachable [%d, 80, 443]", p.SSHPort),
 			Fn: func() (bool, string, bool) {
-				ports := []int{22, 80, 443}
+				var errs []error
+				ports := []int{p.SSHPort, 80, 443}
 				for _, port := range ports {
-					conn, err := net.DialTimeout("tcp", net.JoinHostPort(p.SSHHost, fmt.Sprintf("%d", port)), 3*time.Second)
-					if err != nil {
-						return true, fmt.Sprintf("Port %d not reachable from here", port), true
-					}
-					conn.Close()
+			conn, err := net.DialTimeout("tcp", net.JoinHostPort(p.SSHHost, fmt.Sprintf("%d", port)), 3*time.Second)
+				if err != nil {
+					errs = append(errs, fmt.Errorf("Port %d not reachable from here", port))
+					continue
+				}
+				conn.Close()
+				}
+				if len(errs) > 0 {
+					err := errors.Join(errs...)
+					return true, fmt.Sprintf("%v", err), true
 				}
 				return true, "", false
 			},
@@ -174,7 +181,7 @@ func runChecksPlain(checks []tui.Check) error {
 			output.Check(c.Label, false)
 			failures++
 		case warn:
-			output.Check(c.Label, true)
+			output.Warn("%s", c.Label)
 		default:
 			output.Check(c.Label, true)
 		}

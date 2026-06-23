@@ -62,6 +62,7 @@ type Playbook struct {
 	Tags          string
 	SkipTags      string
 	ExtraVars     map[string]any
+	Quiet         bool
 }
 
 const UserDeploy = "deploy"
@@ -244,8 +245,9 @@ func installUV() (string, error) {
 // ensureDeps extracts embedded Ansible files to
 // disk and installs external Ansible Galaxy roles
 // from requirements.yml. It expects binDir to contain
-// the ansible-galaxy binary.
-func ensureDeps(binDir string) error {
+// the ansible-galaxy binary. When quiet is true,
+// progress output is suppressed (errors still surface).
+func ensureDeps(binDir string, quiet bool) error {
 	if err := ensureExtracted(); err != nil {
 		return fmt.Errorf("extract ansible files: %w", err)
 	}
@@ -258,9 +260,19 @@ func ensureDeps(binDir string) error {
 		"role", "install", "-r", "requirements.yml",
 	)
 	cmd.Dir = ansibleDir()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	if quiet {
+		cmd.Stdout = io.Discard
+		var stderrBuf bytes.Buffer
+		cmd.Stderr = &stderrBuf
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderrBuf.String()))
+		}
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+	return nil
 }
 
 // RunPlaybook executes an Ansible playbook using
@@ -273,7 +285,7 @@ func RunPlaybook(p Playbook) error {
 	if err != nil {
 		return err
 	}
-	if err := ensureDeps(binDir); err != nil {
+	if err := ensureDeps(binDir, p.Quiet); err != nil {
 		return fmt.Errorf("install galaxy deps: %w", err)
 	}
 	args := []string{
@@ -293,14 +305,25 @@ func RunPlaybook(p Playbook) error {
 	cmd := exec.Command(filepath.Join(binDir, "ansible-playbook"), args...)
 	cmd.Dir = ansibleDir()
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
 
-	var errBuf bytes.Buffer
-	cmd.Stderr = io.MultiWriter(os.Stderr, &errBuf)
+	var stdoutBuf, stderrBuf bytes.Buffer
+	if p.Quiet {
+		cmd.Stdout = &stdoutBuf
+		cmd.Stderr = &stderrBuf
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+	}
 	if err := cmd.Run(); err != nil {
+		var detail string
+		if p.Quiet {
+			detail = strings.TrimSpace(stderrBuf.String() + "\n" + stdoutBuf.String())
+		} else {
+			detail = strings.TrimSpace(stderrBuf.String())
+		}
 		return &PlaybookError{
 			Playbook: p.Name,
-			Err:      fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String())),
+			Err:      fmt.Errorf("%w: %s", err, detail),
 		}
 	}
 	return nil

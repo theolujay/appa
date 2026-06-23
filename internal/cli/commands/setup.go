@@ -12,6 +12,7 @@ import (
 	"github.com/theolujay/appa/internal/cli/config"
 	"github.com/theolujay/appa/internal/cli/output"
 	"github.com/theolujay/appa/internal/cli/ssh"
+	"github.com/theolujay/appa/internal/cli/tui"
 	"github.com/theolujay/appa/internal/vcs"
 )
 
@@ -32,6 +33,7 @@ func SetupCmd() *cobra.Command {
 		skipTags   string
 		skipVerify bool
 		opPubKey   string
+		verbose		bool
 	)
 
 	cmd := &cobra.Command{
@@ -39,7 +41,7 @@ func SetupCmd() *cobra.Command {
 		Short: "First-time provisioning of an Appa server",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return setupFunc(args, opPubKey, force, tags, skipTags, skipVerify)
+			return setupFunc(args, opPubKey, tags, skipTags, skipVerify, force, verbose)
 		},
 	}
 
@@ -48,6 +50,7 @@ func SetupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&tags, "tags", "", "Only run Ansible tasks with these tags")
 	cmd.Flags().StringVar(&skipTags, "skip-tags", "", "Skip Ansible tasks with these tags")
 	cmd.Flags().BoolVar(&skipVerify, "skip-verify", false, "Skip SSH host key verification")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show detailed Ansible output")
 
 	return cmd
 }
@@ -66,6 +69,7 @@ func ApplyCmd() *cobra.Command {
 		tags       string
 		skipTags   string
 		skipVerify bool
+		verbose    bool
 	)
 
 	cmd := &cobra.Command{
@@ -73,19 +77,20 @@ func ApplyCmd() *cobra.Command {
 		Short: "Re-apply configuration changes idempotently",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return applyFunc(args, tags, skipTags, skipVerify)
+			return applyFunc(args, tags, skipTags, skipVerify, verbose)
 		},
 	}
 
 	cmd.Flags().StringVar(&tags, "tags", "", "Only run Ansible tasks with these tags")
 	cmd.Flags().StringVar(&skipTags, "skip-tags", "", "Skip Ansible tasks with these tags")
 	cmd.Flags().BoolVar(&skipVerify, "skip-verify", false, "Skip SSH host key verification")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show detailed Ansible output")
 	return cmd
 }
 
 // setupFunc handles the logic for the setup command, coordinating preflight checks,
 // inventory generation, and playbook execution.
-func setupFunc(args []string, opPubKey string, force bool, tags, skipTags string, skipVerify bool) error {
+func setupFunc(args []string, opPubKey, tags, skipTags string, skipVerify, force, verbose bool) error {
 	name := args[0]
 	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
@@ -165,19 +170,15 @@ func setupFunc(args []string, opPubKey string, force bool, tags, skipTags string
 		SkipTags:      skipTags,
 	}
 
-	output.Section("Applying security hardening")
-	secPlaybook := ansible.PlaybookPath("security-hardening.yml")
-	playbook.Name = secPlaybook
-	if err = ansible.RunPlaybook(playbook); err != nil {
+	playbook.Name = ansible.PlaybookPath("security-hardening.yml")
+	if err = runAnsible(playbook, "Applying security hardening", verbose); err != nil {
 		return fmt.Errorf("apply security hardening: %w", err)
 	}
 
-	output.Section("Deploying Appa Stack")
 	cfg.SSHUser = ansible.UserDeploy
 
-	stackPlaybook := ansible.PlaybookPath("deploy-stack.yml")
-	playbook.Name = stackPlaybook
-	if err = ansible.RunPlaybook(playbook); err != nil {
+	playbook.Name = ansible.PlaybookPath("deploy-stack.yml")
+	if err = runAnsible(playbook, "Deploying Appa Stack", verbose); err != nil {
 		return fmt.Errorf("deploy appa stack: %w", err)
 	}
 
@@ -206,7 +207,7 @@ func setupFunc(args []string, opPubKey string, force bool, tags, skipTags string
 
 // applyFunc handles the logic for the apply command, ensuring connectivity before
 // re-running provisioning playbooks with specific tags.
-func applyFunc(args []string, tags, skipTags string, skipVerify bool) error {
+func applyFunc(args []string, tags, skipTags string, skipVerify, verbose bool) error {
 	name := args[0]
 	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
@@ -261,20 +262,25 @@ func applyFunc(args []string, tags, skipTags string, skipVerify bool) error {
 		SkipTags:      skipTags,
 	}
 
-	output.Section("Applying configuration to %q", name)
-	secPlaybook := ansible.PlaybookPath("security-hardening.yml")
-	playbook.Name = secPlaybook
-	if err := ansible.RunPlaybook(playbook); err != nil {
+	if verbose {
+		output.Section("Applying configuration to %q", name)
+	}
+
+	playbook.Name = ansible.PlaybookPath("security-hardening.yml")
+	if err = runAnsible(playbook, "Applying security hardening", verbose); err != nil {
 		return err
 	}
 
-	stackPlaybook := ansible.PlaybookPath("deploy-stack.yml")
-	playbook.Name = stackPlaybook
-	if err := ansible.RunPlaybook(playbook); err != nil {
+	playbook.Name = ansible.PlaybookPath("deploy-stack.yml")
+	if err = runAnsible(playbook, "Deploying Appa Stack", verbose); err != nil {
 		return err
 	}
 
-	output.Success("Configuration applied to %q", name)
+	if !verbose {
+		output.Check("Configuration applied to %q", true, name)
+	} else {
+		output.Success("Configuration applied to %q", name)
+	}
 	return nil
 }
 
@@ -285,6 +291,20 @@ func splitKeys(s string) []string {
 		return []string{}
 	}
 	return []string{s}
+}
+
+// runAnsible runs an Ansible playbook, showing a spinner with the given
+// label when not in verbose mode, or a section header + full output when verbose.
+func runAnsible(p ansible.Playbook, label string, verbose bool) error {
+	if verbose {
+		output.Section("%s", label)
+		return ansible.RunPlaybook(p)
+	}
+	s := tui.StartSpinner(label)
+	p.Quiet = true
+	err := ansible.RunPlaybook(p)
+	s.Stop(err == nil)
+	return err
 }
 
 // pollHealth repeatedly checks the Appa API health endpoint until it returns 200 OK

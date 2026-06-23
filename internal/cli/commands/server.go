@@ -35,7 +35,10 @@ func ServerCmd() *cobra.Command {
 }
 
 func serverInitCmd() *cobra.Command {
-	var opName string
+	var (
+		opName string
+		host string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "init [name]",
@@ -65,11 +68,13 @@ func serverInitCmd() *cobra.Command {
 					return err
 				}
 			}
-			return serverInitFunc([]string{name}, opName)
+			return serverInitFunc([]string{name}, host, opName)
 		},
 	}
 
-	cmd.Flags().StringVarP(&opName, "op-name", "", "", "Target server username to set (default -> '$(whoami)`)")
+	cmd.Flags().StringVarP(&host, "host", "h", "", "SSH Target server (e.g. user@203.0.113.10)")
+	cmd.Flags().StringVarP(&opName, "op-name", "", "", "Target server user name to set (default -> '$(whoami)')")
+
 	return cmd
 }
 
@@ -166,7 +171,7 @@ func serverListCmd() *cobra.Command {
 	}
 }
 
-func serverInitFunc(args []string, opName string) error {
+func serverInitFunc(args []string, host, opName string) error {
 	name := args[0]
 	if config.ServerExists(name) {
 		return fmt.Errorf("server %q already exists", name)
@@ -181,13 +186,16 @@ func serverInitFunc(args []string, opName string) error {
 		opName = u.Username
 
 	}
+	cfg.SSHHost = host
 	cfg.OperatorUser = opName
 
 	if err := config.SaveServer(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
 	output.Success("Server %q created", name)
-	output.Success("\tNext: appa server set-host %s user@host", name)
+	if host == "" {
+		output.Success("\tNext: appa server set-host %s user@host", name)
+	}
 	return nil
 }
 

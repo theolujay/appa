@@ -12,6 +12,7 @@ import (
 	"github.com/theolujay/appa/internal/cli/config"
 	"github.com/theolujay/appa/internal/cli/output"
 	"github.com/theolujay/appa/internal/cli/ssh"
+	"github.com/theolujay/appa/internal/cli/tui"
 )
 
 // apiClient is a convenience wrapper for making authenticated API calls
@@ -85,20 +86,24 @@ func (c *apiClient) ensureProject(name string) (*int64, error) {
 }
 
 func DeployCmd() *cobra.Command {
-	var quiet bool
+	var (
+		quiet   bool
+		verbose bool
+	)
 	cmd := &cobra.Command{
 		Use:   "deploy <project-name>",
 		Short: "Deploy an already initialized project",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return deployFunc(args, quiet)
+			return deployFunc(args, quiet, verbose)
 		},
 	}
 	cmd.Flags().BoolVar(&quiet, "quiet", false, "Suppress rsync progress output")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show detailed output")
 	return cmd
 }
 
-func deployFunc(args []string, quiet bool) error {
+func deployFunc(args []string, quiet, verbose bool) error {
 	name := args[0]
 	if !config.ProjectExists(name) {
 		return fmt.Errorf("project %q doesn't exist: use 'appa project init <source>'", name)
@@ -148,13 +153,21 @@ func deployFunc(args []string, quiet bool) error {
 		SkipVerify:   skipVerify,
 	}
 
-	output.Section("Shipping %s to %s", pCfg.Source, ssh.Target(iCfg.SSHUser, iCfg.SSHHost, iCfg.SSHPort))
+	label := fmt.Sprintf("Shipping %s to %s", pCfg.Source, ssh.Target(iCfg.SSHUser, iCfg.SSHHost, iCfg.SSHPort))
 	var rOut, rErr io.Writer = os.Stdout, os.Stderr
-	if quiet {
+	if quiet || !verbose {
 		rOut = io.Discard
 		rErr = io.Discard
 	}
-	if err := ssh.Rsync(client, src, serverRemoteDir, rOut, rErr); err != nil {
+	if verbose {
+		output.Section("%s", label)
+		err = ssh.Rsync(client, src, serverRemoteDir, rOut, rErr)
+	} else {
+		s := tui.StartSpinner(label)
+		err = ssh.Rsync(client, src, serverRemoteDir, rOut, rErr)
+		s.Stop(err == nil)
+	}
+	if err != nil {
 		return fmt.Errorf("rsync failed: %w", err)
 	}
 	output.Success("%s shipped to %s", pCfg.Source, serverRemoteDir)
