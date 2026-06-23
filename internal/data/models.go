@@ -25,18 +25,20 @@ const (
 )
 
 type Models struct {
-	Deployments DeploymentModeler
-	Users       UserModeler
-	Tokens      TokenModeler
-	Projects    ProjectModeler
+	Deployments    DeploymentModeler
+	Users          UserModeler
+	Tokens         TokenModeler
+	Projects       ProjectModeler
+	ProjectEnvVars ProjectEnvVarModeler
 }
 
 func NewModels(db *sql.DB) Models {
 	return Models{
-		Deployments: &DeploymentModel{DB: db},
-		Users:       &UserModel{DB: db},
-		Tokens:      &TokenModel{DB: db},
-		Projects:    &ProjectModel{DB: db},
+		Deployments:    &DeploymentModel{DB: db},
+		Users:          &UserModel{DB: db},
+		Tokens:         &TokenModel{DB: db},
+		Projects:       &ProjectModel{DB: db},
+		ProjectEnvVars: &ProjectEnvVarModel{DB: db},
 	}
 }
 

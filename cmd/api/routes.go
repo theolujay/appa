@@ -25,6 +25,10 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodPut, "/v1/projects/:id", app.updateProjectHandler)
 	router.HandlerFunc(http.MethodDelete, "/v1/projects/:id", app.deleteProjectHandler)
 
+	router.HandlerFunc(http.MethodGet, "/v1/projects/:id/env", app.listProjectEnvVarsHandler)
+	router.HandlerFunc(http.MethodPost, "/v1/projects/:id/env", app.setProjectEnvVarsHandler)
+	router.HandlerFunc(http.MethodDelete, "/v1/projects/:id/env/:key", app.deleteProjectEnvVarHandler)
+
 	router.HandlerFunc(http.MethodGet, "/v1/deployments", app.listDeploymentsHandler)
 	router.HandlerFunc(http.MethodPost, "/v1/deployments", app.createDeploymentHandler)
 	router.HandlerFunc(http.MethodPost, "/v1/deployments/upload", app.uploadProjectHandler)

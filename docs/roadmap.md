@@ -36,38 +36,48 @@ and system design decisions live in [ARCHITECTURE.md](./architecture.md).
 - `appa deploy <project>` — rsync source shipping + API build pipeline.
 - `--quiet` flag for deploy output control.
 
-## v0.2.0 — Project Lifecycle & Environment Variables (Current)
+## v0.2.x — Project Lifecycle & Environment Variables (Complete)
 
 ### API
 
-- Add `project_name` to deployments table and create handler.
+- `project_id` foreign key on deployments table.
 - Single deployment lookup (`GET /v1/deployments/:id`).
 - Project-filtered deployment list (`GET /v1/deployments?project_name=X`).
-- Project env var CRUD (`GET/POST/DELETE /v1/projects/:name/env`).
-- Pipeline: merge project env vars into build step alongside deployment-specific vars.
+- `project_envs` table (migration 000008) with upsert semantics via `ON CONFLICT`.
+- Project env var CRUD (`GET /v1/projects/:id/env`, `POST /v1/projects/:id/env`, `DELETE /v1/projects/:id/env/:key`).
+- Pipeline: project env vars merged with deployment-level env vars at creation time (deployment-level overrides project-level).
 
 ### CLI
 
 - `project logs <name>` — stream WebSocket logs from latest deployment.
 - `project stop <name>` — stop running or cancel pending deployment.
 - `project restart <name>` — stop + trigger new deployment.
-- `project env set/get/unset <name>` — environment var management through the API.
-- `deploy` now passes `project_name` in POST body.
+- `project env set <name> KEY=VALUE [...]` — upsert env vars via API.
+- `project env get <name> [KEY]` — list all or get a single env var.
+- `project env unset <name> KEY [...]` — delete env vars via API.
+- `deploy` passes `project_name` and `project_id` in POST body.
 
 ## v0.3.0 — Domain & TLS
 
-- `appa instance set-domain <name> <domain> [--cf-token]`.
+- `appa server set-domain <name> <domain> [--cf-token]` — CLI command to wire up existing config model (server config already has `Domain` and `CloudflareToken` fields, Ansible Caddyfile templates support TLS via DNS-01 conditionally).
 - Cloudflare API integration: DNS record creation, wildcard TLS via DNS-01.
 - Pre-build `caddy-cloudflare` image with `xcaddy` and push to GHCR.
 - Caddy TLS certificate verification.
 - Multi-provider DNS interface for future providers (Route53, DigitalOcean, Google Cloud DNS).
 
-## v0.3.1 — Docker Stack Migration
+## v0.3.1 — Docker Stack Migration (Mostly Complete)
 
-- Ansible: swap Docker Compose → Docker Stack in deploy playbook.
-- Rollbacks by switching traffic back to a previously successful image tag.
-- Zero-downtime container swaps (health-check-aware blue/green via Caddy).
-- Stronger restart, update, and service-management semantics on single-node Swarm.
+### Completed
+
+- Ansible deploy playbook uses `docker stack deploy`.
+- Swarm initialization and stack deployment (data + base services).
+- `update_config.failure_action: rollback` for automated rollbacks.
+- `update_config.order: start-first` for blue/green-like zero-downtime swaps.
+- Migrated from legacy `compose.yml` to Swarm stack templates.
+
+### Remaining
+
+- CLI commands (`status`, `logs`, `restart`, `upgrade`) need `docker stack` equivalents.
 
 ## v0.4.0 — Observability
 
@@ -81,12 +91,19 @@ and system design decisions live in [ARCHITECTURE.md](./architecture.md).
 
 ## v0.5.0 — Revamped Dashboard
 
-- Dashboard UI rebuilt on top of all CLI/API features from v0.1.x–v0.4.0.
-- Full project lifecycle visibility, env var management, deployment history.
+- A basic React dashboard already exists (deployment list/detail, log streaming, deploy form, auth pages).
+- Planned revamp to add full project lifecycle visibility, env var management, and deployment history with feature parity against CLI and API.
 
-## v0.6.0 — Authentication & Authorization
+## v0.6.0 — Authentication & Authorization (Partial)
 
-- Multi-user support with accounts.
+### Completed
+
+- Multi-user support with email/password registration and activation.
+- Token-based API authentication (24h expiry).
+- Dashboard login, logout, and session management.
+
+### Remaining
+
 - GitHub sign-in integration.
 - CLI-native auth (sign-in, token management).
 - Role-based access for dashboard users (deploy, view, admin).
@@ -130,4 +147,5 @@ shipping. See [cas-sync.md](./cas-sync.md) for the design research.
 
 ### Development Tooling
 
-A root `.mise.toml` to pin Go and project tooling versions for contributors and CI.
+- A root `.mise.toml` to pin Go and project tooling versions for contributors and CI.
+- Vagrant dev environment at `deploy/ansible/dev/` for end-to-end testing (Makefile targets: `vagrant/up`, `vagrant/destroy`).

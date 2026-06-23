@@ -310,18 +310,18 @@ func serverListFunc(_ *cobra.Command, _ []string) error {
 	}
 	var rows [][]string
 	var dimmed []bool
-	for _, p := range cfgs {
-		host := p.SSHHost
+	for _, s := range cfgs {
+		host := s.SSHHost
 		status := "pending"
 		dim := true
 		if host == "" {
 			host = "-"
-		} else if p.SetupDone {
+		} else if s.SetupDone {
 			status = "done"
 			dim = false
 		}
 
-		rows = append(rows, []string{p.Name, host, status})
+		rows = append(rows, []string{s.Name, host, status})
 		dimmed = append(dimmed, dim)
 	}
 	output.PrintTable([]string{"Name", "Host", "Status"}, rows, dimmed)

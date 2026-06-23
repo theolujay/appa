@@ -67,6 +67,7 @@ func (app *application) createDeploymentHandler(w http.ResponseWriter, r *http.R
 	}
 	if project != nil {
 		d.ProjectID = &project.ID
+		d.EnvVars = app.mergeProjectEnvVars(project.ID, d.EnvVars)
 	}
 
 	if !user.IsAnonymous() {
@@ -158,6 +159,7 @@ func (app *application) uploadProjectHandler(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		d.ProjectID = &project.ID
+		d.EnvVars = app.mergeProjectEnvVars(project.ID, d.EnvVars)
 	}
 
 	if err = app.models.Deployments.Create(&d); err != nil {
@@ -343,6 +345,18 @@ func (app *application) getDeploymentHandler(w http.ResponseWriter, r *http.Requ
 		app.serverErrorResponse(w, r, err)
 		return
 	}
+}
+
+func (app *application) mergeProjectEnvVars(projectID int64, deploymentEnvVars *string) *string {
+	projectEnvVars, err := app.models.ProjectEnvVars.GetAll(projectID)
+	if err != nil {
+		app.logger.Error("failed to fetch project env vars for merge", "project_id", projectID, "error", err)
+		return deploymentEnvVars
+	}
+	if len(projectEnvVars) == 0 {
+		return deploymentEnvVars
+	}
+	return da.MergeProjectEnvVars(projectEnvVars, deploymentEnvVars)
 }
 
 func (app *application) listDeploymentsHandler(w http.ResponseWriter, r *http.Request) {
