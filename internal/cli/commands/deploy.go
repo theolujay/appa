@@ -114,7 +114,8 @@ func DeployCmd() *cobra.Command {
 
 func deployFunc(name string, quiet, verbose bool) error {
 	if !config.ProjectExists(name) {
-		return fmt.Errorf("project %q doesn't exist: use 'appa project init <source>'", name)
+		output.Error("Project %q not found\n\tUse 'appa project init <source>'", name)
+		return nil
 	}
 	pCfg, err := config.LoadProject(name)
 	if err != nil {
@@ -122,7 +123,8 @@ func deployFunc(name string, quiet, verbose bool) error {
 	}
 
 	if pCfg.Target == "" {
-		return fmt.Errorf("target not set: use 'appa project edit %s'", name)
+		output.Warn("No target server set for %q\n\tUse 'appa project edit %s'", name, name)
+		return nil
 	}
 
 	iCfg, err := config.LoadServer(pCfg.Target)
@@ -131,7 +133,8 @@ func deployFunc(name string, quiet, verbose bool) error {
 	}
 
 	if !iCfg.SetupDone {
-		return fmt.Errorf("server %q has not been set up: run 'appa setup %s' first", pCfg.Target, pCfg.Target)
+		output.Warn("Server %q has not been set up\n\tRun 'appa server setup %s' first", pCfg.Target, pCfg.Target)
+		return nil
 	}
 
 	if iCfg.APIBaseURL == "" {

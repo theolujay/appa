@@ -110,14 +110,16 @@ func ApplyCmd() *cobra.Command {
 // inventory generation, and playbook execution.
 func setupFunc(name string, opPubKey, tags, skipTags string, skipVerify, force, verbose bool) error {
 	if !config.ServerExists(name) {
-		return fmt.Errorf("%w: %s", errConfigNotFound, name)
+		output.Error("Server %q not found", name)
+		return nil
 	}
 	cfg, err := config.LoadServer(name)
 	if err != nil {
 		return err
 	}
 	if cfg.SSHHost == "" {
-		return fmt.Errorf("%w: %s", errNoSSHTarget, name)
+		output.Warn("No SSH target set for %q\n\tRun 'appa server set-host %s user@host'", name, name)
+		return nil
 	}
 	if cfg.SetupDone {
 		output.Warn("Server %q has already been set up; use 'appa apply %s' for changes", name, name)
@@ -223,14 +225,16 @@ func setupFunc(name string, opPubKey, tags, skipTags string, skipVerify, force, 
 // re-running provisioning playbooks with specific tags.
 func applyFunc(name string, tags, skipTags string, skipVerify, verbose bool) error {
 	if !config.ServerExists(name) {
-		return fmt.Errorf("%w: %s", errConfigNotFound, name)
+		output.Error("Server %q not found", name)
+		return nil
 	}
 	cfg, err := config.LoadServer(name)
 	if err != nil {
 		return err
 	}
 	if cfg.SSHHost == "" {
-		return fmt.Errorf("%w: %s", errNoSSHTarget, name)
+		output.Warn("No SSH target set for %q\n\tRun 'appa server set-host %s user@host'", name, name)
+		return nil
 	}
 
 	skipVerify = skipVerify || cfg.SSHSkipVerify

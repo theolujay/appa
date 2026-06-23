@@ -119,7 +119,8 @@ After saving, the file is validated. If invalid, you can re-edit or abort.`,
 				}
 			}
 			if !config.ServerExists(name) {
-				return fmt.Errorf("%w: %s", errConfigNotFound, name)
+				output.Error("Server %q not found", name)
+				return nil
 			}
 			return config.Edit(config.Server, name)
 		},
@@ -152,10 +153,12 @@ func serverSetHostCmd() *cobra.Command {
 				if name == "" {
 					cfgs, err := config.ListServers()
 					if err != nil {
-						return err
+						output.Error("%v", err)
+						return nil
 					}
 					if len(cfgs) == 0 {
-						return fmt.Errorf("no servers found, run 'appa server init' first")
+						output.Warn("no servers found, run 'appa server init' first")
+						return nil
 					}
 					options := []huh.Option[string]{}
 					for _, cfg := range cfgs {
@@ -214,7 +217,8 @@ func serverListCmd() *cobra.Command {
 func serverInitFunc(args []string, host, opName string) error {
 	name := args[0]
 	if config.ServerExists(name) {
-		return fmt.Errorf("server %q already exists", name)
+		output.Error("Server %q already exists", name)
+		return nil
 	}
 
 	cfg := config.DefaultServer(name)
@@ -239,23 +243,16 @@ func serverInitFunc(args []string, host, opName string) error {
 	return nil
 }
 
-func serverEditFunc(_ *cobra.Command, args []string) error {
-	name := args[0]
-	if !config.ServerExists(name) {
-		return fmt.Errorf("%w: %s", errConfigNotFound, name)
-	}
-
-	return config.Edit(config.Server, name)
-}
-
 func serverSetHostFunc(args []string, identityFile string, skipVerify bool, apiPort int) error {
 	name, target := args[0], args[1]
 	if !config.ServerExists(name) {
-		return fmt.Errorf("%w: %s", errConfigNotFound, name)
+		output.Error("Server %q not found", name)
+		return nil
 	}
 	user, host, port, err := parseTarget(target)
 	if err != nil {
-		return fmt.Errorf("invalid target: %w", err)
+		output.Error("Invalid target: use user@host or user@host:port")
+		return nil
 	}
 	fmt.Printf("Testing SSH connection to %s...\n", ssh.Target(user, host, port))
 	client := ssh.Client{

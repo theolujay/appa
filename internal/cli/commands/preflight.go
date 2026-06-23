@@ -33,7 +33,8 @@ func PreflightCmd() *cobra.Command {
 					return err
 				}
 				if len(cfgs) == 0 {
-					return fmt.Errorf("no servers found, run 'appa server init' first")
+					output.Warn("No servers found; run 'appa server init' first")
+					return nil
 				}
 				options := make([]huh.Option[string], len(cfgs))
 				for i, cfg := range cfgs {
@@ -51,7 +52,8 @@ func PreflightCmd() *cobra.Command {
 				serverName = args[0]
 			}
 			if serverName == "" {
-				return fmt.Errorf("server name is required")
+				output.Error("Server name is required")
+				return nil
 			}
 			return preflightFunc(serverName, skipVerify, noTTY)
 		},

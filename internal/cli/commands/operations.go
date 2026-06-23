@@ -110,14 +110,16 @@ func UpgradeCmd() *cobra.Command {
 // SSH connectivity, API health, Docker Compose services, and disk usage.
 func statusFunc(name string) error {
 	if !config.ServerExists(name) {
-		return fmt.Errorf("%w: %s", errConfigNotFound, name)
+		output.Error("Server %q not found", name)
+		return nil
 	}
 	p, err := config.LoadServer(name)
 	if err != nil {
 		return fmt.Errorf("load config %q: %w", name, err)
 	}
 	if p.SSHHost == "" {
-		return fmt.Errorf("%s: %w", name, errNoSSHTarget)
+		output.Warn("No SSH target set for %q\n\tRun 'appa server set-host %s user@host'", name, name)
+		return nil
 	}
 
 	output.Section("Status for %q", name)
@@ -195,14 +197,16 @@ func statusFunc(name string) error {
 // with optional service filtering and line count limits.
 func logsFunc(name string, service string, tail int) error {
 	if !config.ServerExists(name) {
-		return fmt.Errorf("%w: %s", errConfigNotFound, name)
+		output.Error("Server %q not found", name)
+		return nil
 	}
 	p, err := config.LoadServer(name)
 	if err != nil {
 		return fmt.Errorf("load config %q: %w", name, err)
 	}
-	if p.SSHHost == "" {
-		return fmt.Errorf("%s: %w", name, errNoSSHTarget)
+	if !p.SetupDone {
+		output.Warn("Server %q not yet set up\n\tRun 'appa server setup %s'", name, name)
+		return nil
 	}
 	clientConfig := ssh.Client{
 		User:         p.SSHUser,
@@ -229,14 +233,16 @@ func logsFunc(name string, service string, tail int) error {
 // optionally limiting to a specific service.
 func restartFunc(name string, service string) error {
 	if !config.ServerExists(name) {
-		return fmt.Errorf("%w: %s", errConfigNotFound, name)
+		output.Error("Server %q not found", name)
+		return nil
 	}
 	p, err := config.LoadServer(name)
 	if err != nil {
 		return fmt.Errorf("load config %q: %w", name, err)
 	}
-	if p.SSHHost == "" {
-		return fmt.Errorf("%s: %w", name, errNoSSHTarget)
+	if !p.SetupDone {
+		output.Warn("Server %q not yet set up\n\tRun 'appa server setup %s'", name, name)
+		return nil
 	}
 	clientConfig := ssh.Client{
 		User:         p.SSHUser,
@@ -264,14 +270,16 @@ func restartFunc(name string, service string) error {
 // version tag. It waits for the API to become healthy after upgrade.
 func upgradeFunc(name string, version string) error {
 	if !config.ServerExists(name) {
-		return fmt.Errorf("%w: %s", errConfigNotFound, name)
+		output.Error("Server %q not found", name)
+		return nil
 	}
 	p, err := config.LoadServer(name)
 	if err != nil {
 		return fmt.Errorf("load config %q: %w", name, err)
 	}
-	if p.SSHHost == "" {
-		return fmt.Errorf("%s: %w", name, errNoSSHTarget)
+	if !p.SetupDone {
+		output.Warn("Server %q not yet set up\n\tRun 'appa server setup %s'", name, name)
+		return nil
 	}
 	clientConfig := ssh.Client{
 		User:         p.SSHUser,

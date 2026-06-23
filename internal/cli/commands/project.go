@@ -323,7 +323,8 @@ func projectInitFunc(args []string, target, name string) error {
 func projectEditFunc(_ *cobra.Command, args []string) error {
 	name := args[0]
 	if !config.ProjectExists(name) {
-		return fmt.Errorf("project not found: %s", name)
+		output.Error("Project %q not found", name)
+		return nil
 	}
 	return config.Edit(config.Project, name)
 }
