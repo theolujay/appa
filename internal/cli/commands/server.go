@@ -72,22 +72,57 @@ func serverInitCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&host, "host", "", "SSH Target server (e.g. user@203.0.113.10)")
-	cmd.Flags().StringVarP(&opName, "op-name", "", "", "Target server user name to set (default -> '$(whoami)')")
+	cmd.Flags().StringVar(&host, "host", "", "SSH Target server (e.g. 203.0.113.10)")
+	defaultUser, _ := user.Current()
+	userName := defaultUser.Username
+	cmd.Flags().StringVarP(&opName, "op-name", "", "", fmt.Sprintf("Target server user name to set (default: %s)", userName))
 
 	return cmd
 }
 
+func promptServerName(name *string, action string) error {
+	cfgs, err := config.ListServers()
+	if err != nil {
+		return err
+	}
+	if len(cfgs) == 0 {
+		return fmt.Errorf("no servers found, run 'appa server init' first")
+	}
+	options := make([]huh.Option[string], len(cfgs))
+	for i, cfg := range cfgs {
+		options[i] = huh.NewOption(cfg.Name, cfg.Name)
+	}
+	return huh.NewSelect[string]().
+		Title(fmt.Sprintf("Select a server to %s:", action)).
+		Options(options...).
+		Value(name).
+		Run()
+}
+
 func serverEditCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "edit <name>",
+		Use:   "edit [name]",
 		Short: "Edit server config in $EDITOR",
 		Long: `Opens the server config in the system editor for direct TOML editing.
 
 The editor is chosen from $APPA_EDITOR, $EDITOR, or defaults to "vi".
 After saving, the file is validated. If invalid, you can re-edit or abort.`,
-		Args: cobra.ExactArgs(1),
-		RunE: serverEditFunc,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			name := ""
+			if len(args) > 0 {
+				name = args[0]
+			}
+			if name == "" {
+				if err := promptServerName(&name, "edit"); err != nil {
+					return err
+				}
+			}
+			if !config.ServerExists(name) {
+				return fmt.Errorf("%w: %s", errConfigNotFound, name)
+			}
+			return config.Edit(config.Server, name)
+		},
 	}
 }
 

@@ -17,10 +17,21 @@ import (
 
 func StatusCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "status <name>",
+		Use:   "status [name]",
 		Short: "Show server health and service status",
-		Args:  cobra.ExactArgs(1),
-		RunE:  statusFunc,
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			name := ""
+			if len(args) > 0 {
+				name = args[0]
+			}
+			if name == "" {
+				if err := promptServerName(&name, "check status"); err != nil {
+					return err
+				}
+			}
+			return statusFunc(name)
+		},
 	}
 }
 
@@ -28,11 +39,20 @@ func LogsCmd() *cobra.Command {
 	var service string
 	var tail int
 	cmd := &cobra.Command{
-		Use:   "logs <name>",
+		Use:   "logs [name]",
 		Short: "Tail Appa Stack logs",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return logsFunc(args, service, tail)
+			name := ""
+			if len(args) > 0 {
+				name = args[0]
+			}
+			if name == "" {
+				if err := promptServerName(&name, "view logs"); err != nil {
+					return err
+				}
+			}
+			return logsFunc(name, service, tail)
 		},
 	}
 	cmd.Flags().StringVarP(&service, "service", "s", "", "Filter to one service (api, db, buildkit, caddy, ui)")
@@ -43,11 +63,20 @@ func LogsCmd() *cobra.Command {
 func RestartCmd() *cobra.Command {
 	var service string
 	cmd := &cobra.Command{
-		Use:   "restart <name>",
+		Use:   "restart [name]",
 		Short: "Restart Appa Stack services",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return restartFunc(args, service)
+			name := ""
+			if len(args) > 0 {
+				name = args[0]
+			}
+			if name == "" {
+				if err := promptServerName(&name, "restart"); err != nil {
+					return err
+				}
+			}
+			return restartFunc(name, service)
 		},
 	}
 	cmd.Flags().StringVarP(&service, "service", "s", "", "Restart only one service")
@@ -57,11 +86,20 @@ func RestartCmd() *cobra.Command {
 func UpgradeCmd() *cobra.Command {
 	var version string
 	cmd := &cobra.Command{
-		Use:   "upgrade <name>",
+		Use:   "upgrade [name]",
 		Short: "Upgrade the Appa Stack",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return upgradeFunc(args, version)
+			name := ""
+			if len(args) > 0 {
+				name = args[0]
+			}
+			if name == "" {
+				if err := promptServerName(&name, "upgrade"); err != nil {
+					return err
+				}
+			}
+			return upgradeFunc(name, version)
 		},
 	}
 	cmd.Flags().StringVar(&version, "version", "", "Pin to a specific version tag")
@@ -70,8 +108,7 @@ func UpgradeCmd() *cobra.Command {
 
 // statusFunc checks and displays the health status of a server, including
 // SSH connectivity, API health, Docker Compose services, and disk usage.
-func statusFunc(_ *cobra.Command, args []string) error {
-	name := args[0]
+func statusFunc(name string) error {
 	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
@@ -156,8 +193,7 @@ func statusFunc(_ *cobra.Command, args []string) error {
 
 // logsFunc streams logs from Docker Compose services,
 // with optional service filtering and line count limits.
-func logsFunc(args []string, service string, tail int) error {
-	name := args[0]
+func logsFunc(name string, service string, tail int) error {
 	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
@@ -191,8 +227,7 @@ func logsFunc(args []string, service string, tail int) error {
 
 // restartFunc restarts Appa Stack services via Docker Compose,
 // optionally limiting to a specific service.
-func restartFunc(args []string, service string) error {
-	name := args[0]
+func restartFunc(name string, service string) error {
 	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
@@ -227,8 +262,7 @@ func restartFunc(args []string, service string) error {
 // upgradeFunc upgrades the Appa Stack by pulling latest images
 // and recreating services, with optional pinning to a specific
 // version tag. It waits for the API to become healthy after upgrade.
-func upgradeFunc(args []string, version string) error {
-	name := args[0]
+func upgradeFunc(name string, version string) error {
 	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}

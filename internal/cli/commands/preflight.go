@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 	"github.com/theolujay/appa/internal/cli/config"
 	"github.com/theolujay/appa/internal/cli/output"
@@ -16,14 +17,43 @@ import (
 )
 
 func PreflightCmd() *cobra.Command {
-	var skipVerify bool
-	var noTTY bool
+	var (
+		skipVerify bool
+		noTTY      bool
+		serverName string
+	)
 	cmd := &cobra.Command{
-		Use:   "preflight <name>",
+		Use:   "preflight [name]",
 		Short: "Run preflight checks on a target server",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return preflightFunc(cmd, args, skipVerify, noTTY)
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			if len(args) == 0 && serverName == "" && !noTTY {
+				cfgs, err := config.ListServers()
+				if err != nil {
+					return err
+				}
+				if len(cfgs) == 0 {
+					return fmt.Errorf("no servers found, run 'appa server init' first")
+				}
+				options := make([]huh.Option[string], len(cfgs))
+				for i, cfg := range cfgs {
+					options[i] = huh.NewOption(cfg.Name, cfg.Name)
+				}
+				if err := huh.NewSelect[string]().
+					Title("Select a server to check:").
+					Options(options...).
+					Value(&serverName).
+					Run(); err != nil {
+					return err
+				}
+			}
+			if len(args) > 0 {
+				serverName = args[0]
+			}
+			if serverName == "" {
+				return fmt.Errorf("server name is required")
+			}
+			return preflightFunc(serverName, skipVerify, noTTY)
 		},
 	}
 	cmd.Flags().BoolVar(
@@ -38,8 +68,7 @@ func PreflightCmd() *cobra.Command {
 // preflightFunc performs comprehensive preflight checks on a target server,
 // validating SSH connectivity, OS compatibility, required ports, DNS resolution,
 // Docker installation status, and configuration requirements.
-func preflightFunc(_ *cobra.Command, args []string, skipVerify bool, noTTY bool) error {
-	name := args[0]
+func preflightFunc(name string, skipVerify bool, noTTY bool) error {
 	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}

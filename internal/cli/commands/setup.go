@@ -37,11 +37,20 @@ func SetupCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "setup <name>",
+		Use:   "setup [name]",
 		Short: "First-time provisioning of an Appa server",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return setupFunc(args, opPubKey, tags, skipTags, skipVerify, force, verbose)
+			name := ""
+			if len(args) > 0 {
+				name = args[0]
+			}
+			if name == "" {
+				if err := promptServerName(&name, "setup"); err != nil {
+					return err
+				}
+			}
+			return setupFunc(name, opPubKey, tags, skipTags, skipVerify, force, verbose)
 		},
 	}
 
@@ -73,11 +82,20 @@ func ApplyCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "apply <name>",
+		Use:   "apply [name]",
 		Short: "Re-apply configuration changes idempotently",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return applyFunc(args, tags, skipTags, skipVerify, verbose)
+			name := ""
+			if len(args) > 0 {
+				name = args[0]
+			}
+			if name == "" {
+				if err := promptServerName(&name, "apply"); err != nil {
+					return err
+				}
+			}
+			return applyFunc(name, tags, skipTags, skipVerify, verbose)
 		},
 	}
 
@@ -90,8 +108,7 @@ func ApplyCmd() *cobra.Command {
 
 // setupFunc handles the logic for the setup command, coordinating preflight checks,
 // inventory generation, and playbook execution.
-func setupFunc(args []string, opPubKey, tags, skipTags string, skipVerify, force, verbose bool) error {
-	name := args[0]
+func setupFunc(name string, opPubKey, tags, skipTags string, skipVerify, force, verbose bool) error {
 	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}
@@ -204,8 +221,7 @@ func setupFunc(args []string, opPubKey, tags, skipTags string, skipVerify, force
 
 // applyFunc handles the logic for the apply command, ensuring connectivity before
 // re-running provisioning playbooks with specific tags.
-func applyFunc(args []string, tags, skipTags string, skipVerify, verbose bool) error {
-	name := args[0]
+func applyFunc(name string, tags, skipTags string, skipVerify, verbose bool) error {
 	if !config.ServerExists(name) {
 		return fmt.Errorf("%w: %s", errConfigNotFound, name)
 	}

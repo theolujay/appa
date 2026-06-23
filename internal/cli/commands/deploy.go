@@ -91,11 +91,20 @@ func DeployCmd() *cobra.Command {
 		verbose bool
 	)
 	cmd := &cobra.Command{
-		Use:   "deploy <project-name>",
+		Use:   "deploy [project-name]",
 		Short: "Deploy an already initialized project",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return deployFunc(args, quiet, verbose)
+			name := ""
+			if len(args) > 0 {
+				name = args[0]
+			}
+			if name == "" {
+				if err := promptProjectName(&name, "deploy"); err != nil {
+					return err
+				}
+			}
+			return deployFunc(name, quiet, verbose)
 		},
 	}
 	cmd.Flags().BoolVar(&quiet, "quiet", false, "Suppress rsync progress output")
@@ -103,8 +112,7 @@ func DeployCmd() *cobra.Command {
 	return cmd
 }
 
-func deployFunc(args []string, quiet, verbose bool) error {
-	name := args[0]
+func deployFunc(name string, quiet, verbose bool) error {
 	if !config.ProjectExists(name) {
 		return fmt.Errorf("project %q doesn't exist: use 'appa project init <source>'", name)
 	}
