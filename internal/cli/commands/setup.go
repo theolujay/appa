@@ -207,7 +207,7 @@ func setupFunc(name string, opPubKey, tags, skipTags string, skipVerify, force, 
 	if err = pollHealth(healthURL, 60*time.Second); err != nil {
 		return fmt.Errorf("API health check failed: %w", err)
 	}
-	output.Success("Appa API is reachable at %s", healthURL)
+	output.Success("Appa API is reachable at %s", apiURL)
 
 	cfg.APIBaseURL = apiURL
 	cfg.SetupDone = true
@@ -217,7 +217,7 @@ func setupFunc(name string, opPubKey, tags, skipTags string, skipVerify, force, 
 
 	output.Section("Setup Complete")
 	output.Success("Server %q is ready!", name)
-	output.Success("  API URL: %s", healthURL)
+	output.Success("  API URL: %s", apiURL)
 	return nil
 }
 

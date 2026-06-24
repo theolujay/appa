@@ -117,6 +117,7 @@ func promptProjectName(name *string, action string) error {
 		Title(fmt.Sprintf("Select a project to %s:", action)).
 		Options(options...).
 		Value(name).
+		WithTheme(tui.ThemeAppa()).
 		Run()
 }
 
@@ -244,11 +245,12 @@ func projectInitCmd() *cobra.Command {
 				source = args[0]
 			}
 			if source == "" {
-				err := huh.NewInput().
-					Title("What is the source directory?").
-					Placeholder("e.g. . or ./my-app").
-					Value(&source).
-					Run()
+			err := huh.NewInput().
+				Title("What is the source directory?").
+				Placeholder("e.g. . or ./my-app").
+				Value(&source).
+				WithTheme(tui.ThemeAppa()).
+				Run()
 				if err != nil {
 					return err
 				}

@@ -11,6 +11,7 @@ import (
 	"github.com/theolujay/appa/internal/cli/config"
 	"github.com/theolujay/appa/internal/cli/output"
 	"github.com/theolujay/appa/internal/cli/ssh"
+	"github.com/theolujay/appa/internal/cli/tui"
 )
 
 func ServerCmd() *cobra.Command {
@@ -38,6 +39,7 @@ func serverInitCmd() *cobra.Command {
 	var (
 		opName string
 		host   string
+		identityFile string
 	)
 
 	cmd := &cobra.Command{
@@ -50,29 +52,33 @@ func serverInitCmd() *cobra.Command {
 				name = args[0]
 			}
 			if name == "" {
-				err := huh.NewInput().
-					Title("What do you want to name this server?").
-					Placeholder("e.g. personal").
-					Value(&name).
-					Validate(func(s string) error {
-						if strings.TrimSpace(s) == "" {
-							return fmt.Errorf("name cannot be empty")
-						}
-						if config.ServerExists(s) {
-							return fmt.Errorf("server %q already exists", s)
-						}
-						return nil
-					}).
-					Run()
+			err := huh.NewInput().
+				Title("What do you want to name this server?").
+				Placeholder("e.g. personal").
+				Value(&name).
+				Validate(func(s string) error {
+					if strings.TrimSpace(s) == "" {
+						return fmt.Errorf("name cannot be empty")
+					}
+					if config.ServerExists(s) {
+						return fmt.Errorf("server %q already exists", s)
+					}
+					return nil
+				}).
+				WithTheme(tui.ThemeAppa()).
+				Run()
 				if err != nil {
 					return err
 				}
 			}
-			return serverInitFunc([]string{name}, host, opName)
+			return serverInitFunc([]string{name}, host, identityFile, opName)
 		},
 	}
 
 	cmd.Flags().StringVar(&host, "host", "", "SSH Target server (e.g. 203.0.113.10)")
+	cmd.Flags().StringVarP(
+		&identityFile, "identity-file", "i", "", "Path to SSH private key",
+	)
 	defaultUser, _ := user.Current()
 	userName := defaultUser.Username
 	cmd.Flags().StringVarP(&opName, "op-name", "", "", fmt.Sprintf("Target server user name to set (default: %s)", userName))
@@ -96,6 +102,7 @@ func promptServerName(name *string, action string) error {
 		Title(fmt.Sprintf("Select a server to %s:", action)).
 		Options(options...).
 		Value(name).
+		WithTheme(tui.ThemeAppa()).
 		Run()
 }
 
@@ -186,7 +193,9 @@ func serverSetHostCmd() *cobra.Command {
 						}))
 				}
 
-				err := huh.NewForm(huh.NewGroup(fields...)).Run()
+				err := huh.NewForm(huh.NewGroup(fields...)).
+				WithTheme(tui.ThemeAppa()).
+				Run()
 				if err != nil {
 					return err
 				}
@@ -214,7 +223,7 @@ func serverListCmd() *cobra.Command {
 	}
 }
 
-func serverInitFunc(args []string, host, opName string) error {
+func serverInitFunc(args []string, host, identityFile, opName string) error {
 	name := args[0]
 	if config.ServerExists(name) {
 		output.Error("Server %q already exists", name)
@@ -230,6 +239,9 @@ func serverInitFunc(args []string, host, opName string) error {
 		opName = u.Username
 
 	}
+	if identityFile != "" {
+		cfg.SSHIdentityFile = identityFile
+	}
 	cfg.SSHHost = host
 	cfg.OperatorUser = opName
 
@@ -239,7 +251,10 @@ func serverInitFunc(args []string, host, opName string) error {
 	output.Success("Server %q created", name)
 	if host == "" {
 		output.Success("\tNext: appa server set-host %s user@host", name)
+	} else {
+		output.Success("SSH target @%s for %q", host, name)
 	}
+
 	return nil
 }
 

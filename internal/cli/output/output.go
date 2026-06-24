@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	Purple    = lipgloss.Color("#7D56F4")
+	Accent    = lipgloss.Color("#007fff")
 	Green     = lipgloss.Color("#43BF6D")
 	Red       = lipgloss.Color("#FF5555")
 	Yellow    = lipgloss.Color("#F1FA8C")
@@ -27,7 +27,7 @@ var (
 var (
 	SectionStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(Purple)
+			Foreground(Accent)
 
 	SuccessStyle = lipgloss.NewStyle().
 			Foreground(Green)
@@ -94,7 +94,7 @@ func PrintTable(header []string, rows [][]string, dimmed []bool) {
 			case row == table.HeaderRow:
 				return lipgloss.NewStyle().
 					Bold(true).
-					Foreground(Purple).
+					Foreground(Accent).
 					Align(lipgloss.Center).
 					Padding(0, 1)
 			case dimmed != nil && dimmed[row]:
@@ -118,15 +118,15 @@ func Header(title string) {
 func Panel(header, body string) {
 	top := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder(), true, false).
-		BorderForeground(Purple).
-		Foreground(Purple).
+		BorderForeground(Accent).
+		Foreground(Accent).
 		Bold(true).
 		Padding(0, 1).
 		Width(80).
 		Render(header)
 	content := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder(), false, true, true, true).
-		BorderForeground(Purple).
+		BorderForeground(Accent).
 		Padding(0, 2).
 		Width(78).
 		Render(body)
@@ -134,7 +134,7 @@ func Panel(header, body string) {
 }
 
 func KV(key, value string) {
-	k := lipgloss.NewStyle().Foreground(Purple).Bold(true).Render(key)
+	k := lipgloss.NewStyle().Foreground(Accent).Bold(true).Render(key)
 	sep := SubtleStyle.Render(" • ")
 	lipgloss.Printf("  %s %s %s\n", k, sep, value)
 }
@@ -142,7 +142,7 @@ func KV(key, value string) {
 func Step(n int, label string) {
 	num := lipgloss.NewStyle().
 		Foreground(White).
-		Background(Purple).
+		Background(Accent).
 		Padding(0, 1).
 		Render(fmt.Sprintf(" %d ", n))
 	lipgloss.Printf("%s %s\n", num, label)

@@ -75,7 +75,7 @@ func NewPreflightModel(checks []Check) *PreflightModel {
 			return items
 		}(),
 		spring:        harmonica.NewSpring(harmonica.FPS(60), 8.0, 0.4),
-		titleStyle:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7D56F4")),
+		titleStyle:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#007fff")),
 		subtitleStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")),
 		numStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")),
 		labelStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("#F8F8F2")),

@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>appa — Deploy to Your Own VPS. No Dockerfiles.</title>
+  <meta name="description" content="appa turns a fresh Linux VPS into a fully operational deployment platform in five commands. CLI-native, Ansible-backed, zero-config builds via Railpack.">
+  <meta property="og:title" content="appa: Self-hosted Deployment PaaS">
+  <meta property="og:description" content="Your VPS. Your deployments. No Dockerfiles. No surprise bills.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://appa.theolujay.dev/">
+  <meta property="og:image" content="https://appa.theolujay.dev/main.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="appa — Deploy to Your Own VPS. No Dockerfiles.">
+  <meta name="twitter:description" content="appa turns a fresh Linux VPS into a fully operational deployment platform in five commands. CLI-native, Ansible-backed, zero-config builds via Railpack.">
+  <meta name="twitter:image" content="https://appa.theolujay.dev/main.png">
+  <link rel="canonical" href="https://appa.theolujay.dev/">
+  <link rel="icon" type="image/png" sizes="32x32" href="/ui/public/favicon_io/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/ui/public/favicon_io/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/ui/public/favicon_io/apple-touch-icon.png">
+  <link rel="manifest" href="/ui/public/favicon_io/site.webmanifest">
+  <meta name="theme-color" content="#007fff">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <style>
+    /* ============================================================
+       TOKENS
+    ============================================================ */
+    :root {
+      --bg:           #0a0a0b;
+      --bg-raised:    #111113;
+      --bg-card:      #141418;
+      --bg-term:      #0d0d10;
+      --border:       #27272a;
+      --border-dim:   #1c1c1f;
+
+      --text:         #f4f4f5;
+      --text-muted:   #a1a1aa;
+      --text-dim:     #52525b;
+
+      --accent:       #007fff;
+      --accent-light: #0088ff;
+      --accent-sub:   rgba(0,127,255,0.1);
+      --accent-glow:  rgba(0,127,255,0.16);
+
+      --green:  #4ade80;
+      --amber:  #fbbf24;
+      --blue:   #60a5fa;
+      --red:    #f87171;
+
+      --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'Geist Mono', 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
+
+      --r:    8px;
+      --r-lg: 14px;
+    }
+
+    /* ============================================================
+       RESET
+    ============================================================ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    a { color: inherit; text-decoration: none; }
+    button { pointer-events: auto; cursor: pointer; border: none; background: none; font-family: inherit; }
+    code { font-family: var(--font-mono); }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--bg);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-dim);
+    }
+
+    /* ============================================================
+       LAYOUT
+    ============================================================ */
+    .wrap {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* ============================================================
+       TYPE SCALE
+    ============================================================ */
+    .display {
+      font-size: clamp(2.75rem, 6vw, 4.75rem);
+      font-weight: 800;
+      letter-spacing: -0.035em;
+      line-height: 1.06;
+    }
+    .display em {
+      font-style: normal;
+      color: var(--accent-light);
+    }
+
+    .headline {
+      font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+    }
+
+    .subhead {
+      font-size: 1.1rem;
+      color: var(--text-muted);
+      line-height: 1.75;
+    }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent-light);
+      margin-bottom: 16px;
+    }
+
+    /* ============================================================
+       BUTTONS
+    ============================================================ */
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 0.9rem;
+      font-weight: 600;
+      padding: 11px 22px;
+      border-radius: var(--r);
+      border: 1px solid transparent;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn-primary:hover  { background: var(--accent-light); }
+    .btn-primary:active { transform: scale(0.97); }
+
+    .btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 500;
+      padding: 11px 22px;
+      border-radius: var(--r);
+      border: 1px solid var(--border);
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
+
+    /* ============================================================
+       NAV
+    ============================================================ */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      border-bottom: 1px solid transparent;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .nav.scrolled {
+      background: rgba(10,10,11,0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-color: var(--border-dim);
+    }
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+    }
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-weight: 700;
+      font-size: 1rem;
+      letter-spacing: -0.02em;
+    }
+    .nav-logo img { width: 18px; height: 18px; }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    .nav-link {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      transition: color 0.15s;
+    }
+    .nav-link:hover { color: var(--text); }
+
+    .nav-gh {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      padding: 7px 14px;
+      border-radius: var(--r);
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .nav-gh:hover { border-color: var(--accent); background: var(--accent-sub); }
+
+    /* ============================================================
+       HERO
+    ============================================================ */
+    .hero {
+      position: relative;
+      padding: 80px 0 96px;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -60px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 900px;
+      height: 500px;
+      background: radial-gradient(ellipse at 50% 0%, var(--accent-glow) 0%, transparent 65%);
+      pointer-events: none;
+    }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 64px;
+      align-items: center;
+    }
+    .hero-text { position: relative; z-index: 1; }
+    .hero-text .display    { margin-bottom: 20px; }
+    .hero-text .subhead    { margin-bottom: 36px; max-width: 44ch; }
+    .hero-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+
+    /* ============================================================
+       TERMINAL WINDOW
+       Signature: subtle CRT scanline overlay
+    ============================================================ */
+    .terminal {
+      position: relative;
+      background: var(--bg-term);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      box-shadow:
+        0 0 0 1px rgba(0,127,255,0.07),
+        0 32px 64px rgba(0,0,0,0.65),
+        0 0 80px rgba(0,127,255,0.07);
+    }
+    /* CRT scanline - the signature element */
+    .terminal::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.045) 2px,
+        rgba(0,0,0,0.045) 4px
+      );
+      pointer-events: none;
+      border-radius: var(--r-lg);
+    }
+    .term-bar {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 11px 14px;
+      background: rgba(255,255,255,0.025);
+      border-bottom: 1px solid var(--border-dim);
+    }
+    .term-dot { width: 11px; height: 11px; border-radius: 50%; }
+    .term-dot-r { background: #ff5f57; }
+    .term-dot-y { background: #ffbd2e; }
+    .term-dot-g { background: #28ca41; }
+    .term-title {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--text-dim);
+      margin-left: auto;
+    }
+    .term-body {
+      padding: 20px 20px 24px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      line-height: 1.85;
+    }
+    .tc-prompt  { color: var(--text-dim); }
+    .tc-cmd     { color: var(--text); font-weight: 500; }
+    .tc-tag     { color: var(--accent-light); }
+    .tc-ok      { color: var(--green); }
+    .tc-info    { color: var(--text-muted); }
+    .tc-success { color: var(--green); font-weight: 500; }
+    .tc-url     { color: var(--blue); }
+    .tc-cursor  {
+      display: inline-block;
+      width: 7px; height: 14px;
+      background: var(--accent-light);
+      vertical-align: text-bottom;
+      animation: blink 1.15s step-end infinite;
+    }
+    @keyframes blink {
+      0%,100% { opacity: 1; }
+      50%      { opacity: 0; }
+    }
+
+    /* small terminal (inside hat cards) */
+    .mini-term {
+      background: var(--bg-term);
+      border: 1px solid var(--border-dim);
+      border-radius: var(--r);
+      overflow: hidden;
+      margin-top: 24px;
+    }
+    .mini-term-bar {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border-dim);
+    }
+    .mini-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .mini-term-body {
+      padding: 14px 16px;
+      font-family: var(--font-mono);
+      font-size: 0.77rem;
+      line-height: 1.9;
+    }
+
+    /* ============================================================
+       INSTALL COMMAND BLOCK
+    ============================================================ */
+    .install-block {
+      display: flex;
+      align-items: center;
+      background: var(--bg-term);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      overflow: hidden;
+      max-width: 520px;
+    }
+    .install-block code {
+      padding: 12px 16px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .install-block code span { color: var(--text); }
+    .copy-btn {
+      padding: 10px 14px;
+      border-left: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 0.73rem;
+      color: var(--text-dim);
+      white-space: nowrap;
+      transition: color 0.15s, background 0.15s;
+    }
+    .copy-btn:hover  { color: var(--text); background: var(--accent-sub); }
+    .copy-btn.copied { color: var(--green); }
+
+    /* ============================================================
+       DIVIDER
+    ============================================================ */
+    .rule { height: 1px; background: var(--border-dim); }
+
+    /* ============================================================
+       PROBLEM
+    ============================================================ */
+    .problem { padding: 80px 0; }
+    .problem-inner {
+      max-width: 620px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    .problem-inner p {
+      font-size: 1.1rem;
+      color: var(--text-muted);
+      line-height: 1.8;
+    }
+    .problem-inner p + p { margin-top: 18px; }
+    .problem-inner strong { color: var(--text); font-weight: 600; }
+
+    /* ============================================================
+       TWO HATS
+    ============================================================ */
+    .hats { padding: 80px 0; }
+    .hats-head { text-align: center; margin-bottom: 52px; }
+    .hats-head .headline { margin-top: 10px; }
+
+    .hats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .hat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      padding: 32px;
+    }
+    .hat-label {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent-light);
+      margin-bottom: 12px;
+    }
+    .hat-card h3 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 10px;
+    }
+    .hat-card > p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.7;
+    }
+    .hats-note {
+      text-align: center;
+      margin-top: 24px;
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
+    /* ============================================================
+       PIPELINE
+    ============================================================ */
+    .pipeline {
+      padding: 80px 0;
+      background: var(--bg-raised);
+      border-top: 1px solid var(--border-dim);
+      border-bottom: 1px solid var(--border-dim);
+    }
+    .pipeline-head { text-align: center; margin-bottom: 56px; }
+    .pipeline-head .headline { margin-top: 10px; }
+
+    .pipe-flow {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 4px;
+    }
+    .pipe-step { flex: 1; text-align: center; }
+    .pipe-step a { color: inherit; text-decoration: none; }
+    .pipe-arrow {
+      flex-shrink: 0;
+      padding-top: 20px;
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      align-self: flex-start;
+    }
+    .pipe-icon {
+      width: 48px;
+      height: 48px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 12px;
+    }
+    .pipe-icon svg {
+      width: 28px;
+      height: 28px;
+    }
+    .pipe-name {
+      font-weight: 700;
+      font-size: 0.875rem;
+      letter-spacing: -0.01em;
+      margin-bottom: 6px;
+    }
+    .pipe-desc {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      line-height: 1.55;
+      padding: 0 6px;
+    }
+
+    /* ============================================================
+       DIFFERENTIATORS
+    ============================================================ */
+    .diff { padding: 80px 0; }
+    .diff-head { margin-bottom: 48px; }
+    .diff-head .headline { margin-top: 10px; }
+
+    .diff-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+    }
+    .diff-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      padding: 28px;
+      transition: border-color 0.2s;
+    }
+    .diff-card:hover { border-color: rgba(0,127,255,0.4); }
+
+    .diff-icon {
+      width: 40px; height: 40px;
+      background: var(--accent-sub);
+      border-radius: var(--r);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+    .diff-icon svg {
+      width: 19px; height: 19px;
+      stroke: var(--accent-light);
+    }
+    .diff-card h3 {
+      font-size: 0.975rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 10px;
+    }
+    .diff-card p {
+      font-size: 0.855rem;
+      color: var(--text-muted);
+      line-height: 1.7;
+    }
+    .diff-card p code {
+      font-size: 0.8em;
+      color: var(--accent-light);
+      background: var(--accent-sub);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    /* ============================================================
+       STACK TABLE
+    ============================================================ */
+    .stack {
+      padding: 80px 0;
+      background: var(--bg-raised);
+      border-top: 1px solid var(--border-dim);
+      border-bottom: 1px solid var(--border-dim);
+    }
+    .stack-head { margin-bottom: 40px; }
+    .stack-head .headline { margin-top: 10px; }
+
+    .stack-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .stack-table th {
+      text-align: left;
+      font-family: var(--font-mono);
+      font-size: 0.63rem;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      padding: 0 0 14px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .stack-table th + th { padding-left: 24px; }
+    .stack-table td {
+      padding: 15px 0;
+      font-size: 0.875rem;
+      vertical-align: top;
+      border-bottom: 1px solid var(--border-dim);
+    }
+    .stack-table td + td { padding-left: 24px; }
+    .stack-table tr:last-child td { border-bottom: none; }
+
+    .stack-table .td-layer {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      white-space: nowrap;
+      width: 130px;
+    }
+    .stack-table .td-tech {
+      font-weight: 600;
+      color: var(--text);
+      width: 220px;
+    }
+    .stack-table .td-why {
+      color: var(--text-muted);
+      font-size: 0.855rem;
+    }
+    .stack-table .td-tech code {
+      font-size: 0.82em;
+      color: var(--accent-light);
+      background: var(--accent-sub);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    /* ============================================================
+       FINAL CTA
+    ============================================================ */
+    .cta {
+      padding: 100px 0;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .cta::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 700px;
+      height: 500px;
+      background: radial-gradient(ellipse at center, rgba(0,127,255,0.12) 0%, transparent 65%);
+      pointer-events: none;
+    }
+    .cta .headline { position: relative; }
+    .cta-sub {
+      font-size: 1rem;
+      color: var(--text-muted);
+      margin: 14px auto 40px;
+      max-width: 40ch;
+      position: relative;
+    }
+    .cta .install-block { margin: 0 auto 32px; position: relative; }
+    .cta-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+      position: relative;
+    }
+
+    /* ============================================================
+       FOOTER
+    ============================================================ */
+    .footer {
+      border-top: 1px solid var(--border-dim);
+      padding: 28px 0;
+    }
+    .footer-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .footer-left {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+    .footer-left a { transition: color 0.15s; }
+    .footer-left a:hover { color: var(--text-muted); }
+    .footer-links { display: flex; gap: 20px; }
+    .footer-link {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      transition: color 0.15s;
+    }
+    .footer-link:hover { color: var(--text-muted); }
+
+    /* ============================================================
+       RESPONSIVE
+    ============================================================ */
+    @media (max-width: 820px) {
+      .hero-grid   { grid-template-columns: 1fr; gap: 48px; }
+      .hats-grid   { grid-template-columns: 1fr; }
+      .diff-grid   { grid-template-columns: 1fr; gap: 14px; }
+      .pipe-flow   { flex-direction: column; align-items: center; gap: 0; }
+      .pipe-step   { width: 100%; max-width: 340px; }
+      .pipe-arrow  { transform: rotate(90deg); padding: 4px 0; }
+      .nav-right   { gap: 12px; }
+      .nav-link    { font-size: 0.8rem; }
+      .footer-inner { flex-direction: column; gap: 16px; text-align: center; }
+      .footer-links { flex-wrap: wrap; justify-content: center; }
+      .stack-table .td-layer { display: none; }
+    }
+
+    @media (max-width: 480px) {
+      .hero { padding: 60px 0 72px; }
+      .cta  { padding: 72px 0; }
+      .install-block code { font-size: 0.72rem; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .tc-cursor { animation: none; opacity: 1; }
+      html       { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ============================================================
+       NAV
+  ============================================================ -->
+  <nav class="nav" id="nav">
+    <div class="wrap">
+      <div class="nav-inner">
+
+        <a href="/" class="nav-logo">
+          <img src="ui/public/favicon_io/android-chrome-512x512.png" alt="" width="13" height="13" aria-hidden="true">
+          appa
+        </a>
+
+        <div class="nav-right">
+          <a class="nav-link" href="https://github.com/theolujay/appa/blob/main/docs/user-guide.md" target="_blank" rel="noopener">Docs</a>
+          <a class="nav-link" href="https://github.com/theolujay/appa/blob/main/ARCHITECTURE.md" target="_blank" rel="noopener">Architecture</a>
+          <a class="nav-gh" href="https://github.com/theolujay/appa" target="_blank" rel="noopener">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+              <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
+            </svg>
+            GitHub
+          </a>
+        </div>
+
+      </div>
+    </div>
+  </nav>
+
+
+  <!-- ============================================================
+       HERO
+  ============================================================ -->
+  <section class="hero">
+    <div class="wrap">
+      <div class="hero-grid">
+
+        <div class="hero-text">
+          <div class="eyebrow"><span id="appa-version">v0.2.0</span> &nbsp;·&nbsp; Apache 2.0</div>
+          <h1 class="display">
+            Your&nbsp;VPS.<br>
+            Your&nbsp;deploys.<br>
+            <em>Effortlessly.</em>
+          </h1>
+          <p class="subhead" style="margin-top: 20px; margin-bottom: 36px;">
+            Turn any Linux VPS into a zero-config deployment platform. Connect your domain, push your code. No Dockerfiles, no sysadmin grind. Manage your entire fleet from one terminal.
+          </p>
+          <div class="hero-actions">
+            <a class="btn-primary" href="https://github.com/theolujay/appa" target="_blank" rel="noopener">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+              </svg>
+              Star on GitHub
+            </a>
+            <a class="btn-ghost" href="https://github.com/theolujay/appa/blob/main/docs/user-guide.md" target="_blank" rel="noopener">
+              Read the guide
+            </a>
+          </div>
+        </div>
+
+        <div>
+          <div class="terminal">
+            <div class="term-bar">
+              <span class="term-dot term-dot-r"></span>
+              <span class="term-dot term-dot-y"></span>
+              <span class="term-dot term-dot-g"></span>
+              <span class="term-title">~ Demo</span>
+            </div>
+            <div class="term-body">
+              <span class="tc-prompt">$ </span><span class="tc-cmd">appa server init demo</span><br>
+              <span class="tc-info">  Server "demo" created</span><br>
+              <span class="tc-prompt">$ </span><span class="tc-cmd">appa server set-host demo root@203.0.113.10 -i ~/.ssh/id_ed25519</span><br>
+              <span class="tc-ok">  ✓</span> <span class="tc-info">SSH target set for "demo": root@203.0.113.10</span><br>
+              <span class="tc-prompt">$ </span><span class="tc-cmd">appa server preflight demo</span><br>
+              <span class="tc-ok">  ✓</span> <span class="tc-info">Server exists</span><br>
+              <span class="tc-ok">  ✓</span> <span class="tc-info">SSH reachable</span><br>
+              <span class="tc-ok">  ✓</span> <span class="tc-info">OS supported (Ubuntu)</span><br>
+              <span class="tc-ok">  ✓</span> <span class="tc-info">Required ports reachable [22, 80, 443]</span><br>
+              <span class="tc-prompt">$ </span><span class="tc-cmd">appa server setup demo</span><br>
+              <span class="tc-ok">  ✓</span> <span class="tc-info">Applying security hardening</span><br>
+              <span class="tc-ok">  ✓</span> <span class="tc-info">Deploying appa Stack</span><br>
+              <span class="tc-info">  appa API is reachable at https://demo.example.com</span><br>
+              <span class="tc-success">  Setup Complete</span><br>
+              <span class="tc-success">  Server "demo" is ready!</span><br>
+              <span class="tc-success">    API URL: https://demo.example.com</span><br>
+              <span class="tc-prompt">$ </span><span class="tc-cursor"></span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+
+  <!-- ============================================================
+       PROBLEM
+  ============================================================ -->
+  <!-- <section class="problem">
+    <div class="wrap">
+      <div class="problem-inner">
+        <p>
+          PaaS bills surprise you. DIY servers eat your afternoon reverse proxy setup to Docker configurations. And single-server tools may leave you managing security and config manually, everytime.
+        </p>
+        <p>
+          <strong>appa</strong> takes the middle path... Own the machine, keep the terminal, skip the ceremony. Multi-server CLI management, automated Ansible hardening, Dockerless builds, and live streaming from one tool!
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <div class="rule"></div> -->
+
+
+  <!-- ============================================================
+       TWO HATS
+  ============================================================ -->
+  <section class="hats">
+    <div class="wrap">
+
+      <div class="hats-head">
+        <div class="eyebrow">One tool, two roles</div>
+        <h2 class="headline">The operator and the developer</h2>
+      </div>
+
+      <div class="hats-grid">
+
+        <div class="hat-card">
+          <div class="hat-label">The Operator</div>
+          <h3>Provision and manage servers from your terminal</h3>
+          <p>Point appa at a fresh VPS. It handles SSH hardening, firewall rules, Docker, BuildKit, Caddy, and PostgreSQL. Everything provisioned with Ansible and Molecule-tested in CI.</p>
+          <div class="mini-term">
+            <div class="mini-term-bar">
+              <span class="mini-dot" style="background:#ff5f57"></span>
+              <span class="mini-dot" style="background:#ffbd2e"></span>
+              <span class="mini-dot" style="background:#28ca41"></span>
+            </div>
+            <div class="mini-term-body">
+              <span class="tc-prompt">$ </span><span class="tc-cmd">appa server init demo --host 203.0.113.10 -i ~/.ssh/id_file</span><br>
+              <span class="tc-ok">  ✓</span><span class="tc-info">  Server "demo" created</span><br>
+              <!-- <span class="tc-prompt">$ </span><span class="tc-cmd">appa server set-host demo root@203.0.113.10</span><br> -->
+              <span class="tc-ok">  ✓</span> <span class="tc-info">SSH target @203.0.113.10 set for "demo"</span><br>
+              <span class="tc-prompt">$ </span><span class="tc-cmd">appa server preflight demo</span>
+                <span style="color:var(--text-dim)">  # checks SSH, RAM, OS</span><br>
+              <span class="tc-ok">  ✓</span> <span class="tc-info">All critical checks passed</span><br>
+              <span class="tc-prompt">$ </span><span class="tc-cmd">appa server setup demo</span>
+                <span style="color:var(--text-dim)">   # hardens + provisions</span><br>
+              <span class="tc-success">  Setup Complete</span><br>
+              <span class="tc-prompt">$ </span><span class="tc-cmd">appa server status demo</span><br>
+              <span class="tc-ok">  ✓</span> <span style="color:var(--text-dim)">appa Stack running</span><br>
+              <span class="tc-prompt">$ </span><span class="tc-cmd">appa server upgrade demo</span>
+                <span style="color:var(--text-dim)">  # pull &amp; redeploy</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hat-card">
+          <div class="hat-label">The Developer</div>
+          <h3>Deploy apps without a Dockerfile or config file</h3>
+          <p>Push a Git URL, a ZIP, or your local directory. appa detects your runtime, builds an optimized image, starts the container, and registers the subdomain. All automatic.</p>
+          <div class="mini-term">
+            <div class="mini-term-bar">
+              <span class="mini-dot" style="background:#ff5f57"></span>
+              <span class="mini-dot" style="background:#ffbd2e"></span>
+              <span class="mini-dot" style="background:#28ca41"></span>
+            </div>
+            <div class="mini-term-body">
+              <span class="tc-prompt">$ </span><span class="tc-cmd">appa project init ./my-app --target demo</span><br>
+              <span class="tc-info">  Project "my-app" created</span><br>
+              <span class="tc-prompt">$ </span><span class="tc-cmd">appa deploy my-app</span><br>
+              <span class="tc-tag">  [build]</span> <span style="color:var(--text-dim)">Node.js 20 detected via Railpack</span><br>
+              <span class="tc-tag">  [build]</span> <span style="color:var(--text-dim)">Building image...</span><br>
+              <span class="tc-ok">  ✓</span> <span style="color:var(--text-dim)">Container started</span><br>
+              <span class="tc-ok">  ✓</span> <span style="color:var(--text-dim)">Route registered</span><br>
+              <span class="tc-success">  Live at </span><span class="tc-url">https://my-app.yourdomain.com</span><br>
+              <br>
+              <span class="tc-prompt">$ </span><span class="tc-cmd">appa project logs my-app</span>
+                <span style="color:var(--text-dim)">  # stream runtime logs</span><br>
+              <span class="tc-prompt">$ </span><span class="tc-cmd">appa project restart my-app</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <p class="hats-note">One person can wear both hats. The CLI handles both, even for an entire fleet of VPS instances.</p>
+
+    </div>
+  </section>
+
+
+  <!-- ============================================================
+       PIPELINE
+  ============================================================ -->
+  <section class="pipeline">
+    <div class="wrap">
+
+      <div class="pipeline-head">
+        <div class="eyebrow">Under the hood</div>
+        <h2 class="headline">From code to live URL</h2>
+      </div>
+
+      <div class="pipe-flow">
+
+        <div class="pipe-step">
+          <div class="pipe-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
+          <div class="pipe-name">Source</div>
+          <div class="pipe-desc">Ingests your code from Git, ZIP, or local machine</div>
+        </div>
+
+        <div class="pipe-arrow">→</div>
+
+        <div class="pipe-step">
+          <a href="https://railpack.com" target="_blank" rel="noopener">
+            <div class="pipe-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
+            <div class="pipe-name">Railpack</div>
+          </a>
+          <div class="pipe-desc">Detects runtime and generates a build plan. No Dockerfile needed.</div>
+        </div>
+
+        <div class="pipe-arrow">→</div>
+
+        <div class="pipe-step">
+          <a href="https://docs.docker.com/build/buildkit/" target="_blank" rel="noopener">
+            <div class="pipe-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="10" width="6" height="5" rx="1"/><rect x="14" y="2" width="6" height="5" rx="1"/><rect x="14" y="17" width="6" height="5" rx="1"/><path d="M 8 12 L 14 4"/><path d="M 8 13 L 14 19"/><path d="M 20 7 L 20 16"/></svg></div>
+            <div class="pipe-name">BuildKit</div>
+          </a>
+          <div class="pipe-desc">Executes the plan, produces an optimized image</div>
+        </div>
+
+        <div class="pipe-arrow">→</div>
+
+        <div class="pipe-step">
+          <a href="https://docker.com" target="_blank" rel="noopener">
+            <div class="pipe-icon"><svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M13.983 11.078h2.119a.186.186 0 0 0 .186-.185V9.006a.186.186 0 0 0-.186-.186h-2.119a.185.185 0 0 0-.185.185v1.888c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 0 0 .186-.186V3.574a.186.186 0 0 0-.186-.185h-2.118a.185.185 0 0 0-.185.185v1.888c0 .102.082.185.185.185m0 2.716h2.118a.187.187 0 0 0 .186-.186V6.29a.186.186 0 0 0-.186-.185h-2.118a.185.185 0 0 0-.185.185v1.887c0 .102.082.185.185.186m-2.93 0h2.12a.186.186 0 0 0 .184-.186V6.29a.185.185 0 0 0-.185-.185H8.1a.185.185 0 0 0-.185.185v1.887c0 .102.083.185.185.186m-2.964 0h2.119a.186.186 0 0 0 .185-.186V6.29a.185.185 0 0 0-.185-.185H5.136a.186.186 0 0 0-.186.185v1.887c0 .102.084.185.186.186m5.893 2.715h2.118a.186.186 0 0 0 .186-.185V9.006a.186.186 0 0 0-.186-.186h-2.118a.185.185 0 0 0-.185.185v1.888c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 0 0 .184-.185V9.006a.185.185 0 0 0-.184-.186h-2.12a.185.185 0 0 0-.184.185v1.888c0 .102.083.185.185.185m-2.964 0h2.119a.185.185 0 0 0 .185-.185V9.006a.185.185 0 0 0-.184-.186h-2.12a.186.186 0 0 0-.186.186v1.887c0 .102.084.185.186.185m-2.92 0h2.12a.185.185 0 0 0 .184-.185V9.006a.185.185 0 0 0-.184-.186h-2.12a.185.185 0 0 0-.184.185v1.888c0 .102.082.185.185.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.087-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 0 0-.75.748 11.376 11.376 0 0 0 .692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137.983.003 1.963-.086 2.93-.266a12.248 12.248 0 0 0 3.823-1.389c.98-.567 1.86-1.288 2.61-2.136 1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288Z"/></svg></div>
+            <div class="pipe-name">Docker</div>
+          </a>
+          <div class="pipe-desc">Runs the container on your VPS via the Moby SDK</div>
+        </div>
+
+        <div class="pipe-arrow">→</div>
+
+        <div class="pipe-step">
+          <a href="https://caddyserver.com" target="_blank" rel="noopener">
+            <div class="pipe-icon"><svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M11.094.47c-.842 0-1.696.092-2.552.288a11.37 11.37 0 0 0-4.87 2.423 10.632 10.632 0 0 0-2.36 2.826A10.132 10.132 0 0 0 .305 8.582c-.398 1.62-.4 3.336-.043 5.048.085.405.183.809.31 1.212a11.85 11.85 0 0 0 1.662 3.729 3.273 3.273 0 0 0-.086.427 3.323 3.323 0 0 0 2.848 3.71 3.279 3.279 0 0 0 1.947-.346c1.045.51 2.17.864 3.339 1.04a11.66 11.66 0 0 0 4.285-.155 11.566 11.566 0 0 0 4.936-2.485 10.643 10.643 0 0 0 2.352-2.894 11.164 11.164 0 0 0 1.356-4.424 11.214 11.214 0 0 0-.498-4.335c.175-.077.338-.175.486-.293a.444.444 89.992 0 0 .001 0c.402-.322.693-.794.777-1.342a2.146 2.146 0 0 0-1.79-2.434 2.115 2.115 0 0 0-1.205.171c-.038-.043-.078-.086-.113-.13a11.693 11.693 0 0 0-3.476-2.93 13.348 13.348 0 0 0-1.76-.81 13.55 13.55 0 0 0-2.06-.613A12.121 12.121 0 0 0 11.093.47Zm.714.328c.345-.004.688.01 1.028.042a9.892 9.892 0 0 1 2.743.639c.984.39 1.89.958 2.707 1.632.803.662 1.502 1.45 2.091 2.328.026.039.048.08.07.12a2.12 2.12 0 0 0-.435 2.646c-.158.114-.97.692-1.634 1.183-.414.308-.733.557-.733.557l.581.68s.296-.276.665-.638c.572-.562 1.229-1.233 1.395-1.403a2.122 2.122 0 0 0 1.907.677 11.229 11.229 0 0 1-.013 4.046 11.41 11.41 0 0 1-1.475 3.897 12.343 12.343 0 0 1-2.079 2.587c-1.19 1.125-2.633 2.022-4.306 2.531a10.826 10.826 0 0 1-3.973.484 11.04 11.04 0 0 1-3.057-.652 3.304 3.304 0 0 0 1.417-2.294 3.275 3.275 0 0 0-.294-1.842c.18-.162.403-.363.656-.6 1.015-.955 2.353-2.303 2.353-2.303l-.47-.599s-1.63.972-2.801 1.728c-.307.198-.573.378-.777.517a3.273 3.273 0 0 0-1.516-.611c-1.507-.198-2.927.672-3.487 2.017a10.323 10.323 0 0 1-.695-1.078A10.92 10.92 0 0 1 .728 14.8a10.35 10.35 0 0 1-.2-1.212c-.164-1.653.103-3.258.629-4.754a12.95 12.95 0 0 1 1.087-2.288c.57-.968 1.248-1.872 2.069-2.656A11.013 11.013 0 0 1 11.808.797Zm-.147 3.257a3.838 3.838 0 0 0-3.82 3.82v2.36h-.94c-.751 0-1.377.625-1.377 1.377v3.8h1.46v-3.718h9.354v6.264H10.02v1.46h6.4c.751 0 1.377-.625 1.377-1.377v-6.43c0-.751-.626-1.377-1.377-1.377h-.94v-2.36a3.838 3.838 0 0 0-3.82-3.819zm0 1.46a2.371 2.371 0 0 1 2.36 2.36v2.36H9.3v-2.36a2.372 2.372 0 0 1 2.36-2.36zm10.141.392a1.253 1.253 0 0 1 1.296 1.434c-.049.319-.217.59-.453.78-.266.213-.61.318-.968.264a1.253 1.253 0 0 1-1.045-1.42 1.255 1.255 0 0 1 1.17-1.058zM5.384 17.425a2.02 2.02 0 0 1 1.917 1.298c.116.3.159.628.114.967a2.015 2.015 0 0 1-2.249 1.728 2.016 2.016 0 0 1-1.727-2.25 2.017 2.017 0 0 1 1.945-1.743z"/></svg></div>
+            <div class="pipe-name">Caddy</div>
+          </a>
+          <div class="pipe-desc">Routes subdomain, issues wildcard TLS automatically</div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ============================================================
+       DIFFERENTIATORS
+  ============================================================ -->
+  <section class="diff">
+    <div class="wrap">
+
+      <div class="diff-head">
+        <div class="eyebrow">Why appa</div>
+        <h2 class="headline">Terminal-first, dashboard-included</h2>
+      </div>
+
+      <div class="diff-grid">
+
+        <div class="diff-card">
+          <div class="diff-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <polyline points="4 17 10 11 4 5"></polyline>
+              <line x1="12" y1="19" x2="20" y2="19"></line>
+            </svg>
+          </div>
+          <h3>CLI-native fleet management</h3>
+          <p>Manage your fleet with <code>appa server setup</code>, <code>appa server apply</code>, and <code>appa server status</code>. One binary handles any number of VPSs.</p>
+        </div>
+
+        <div class="diff-card">
+          <div class="diff-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+          </div>
+          <h3>Ansible-backed security hardening</h3>
+          <p><code>appa server setup</code> runs Ansible playbooks for SSH hardening, UFW, auditd, kernel tuning, and fail2ban. Molecule-tested in CI, not a bash script hoping for the best.</p>
+        </div>
+
+        <div class="diff-card">
+          <div class="diff-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+          </div>
+          <h3>Zero-config builds via Railpack</h3>
+          <p>Railpack inspects your code and generates an optimized build plan. No Dockerfiles, no config. Ships source via rsync so you don't need a registry.</p>
+        </div>
+
+        <div class="diff-card">
+          <div class="diff-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+              <path d="M6 10l2-2 2 2 4-4 2 2 2-2"></path>
+            </svg>
+          </div>
+          <h3>Browser-based dashboard</h3>
+          <p>Monitor server status, deployment history, and live logs from any browser. Mirrors the CLI so there's no context switch.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ============================================================
+       STACK TABLE
+  ============================================================ -->
+  <!-- <section class="stack">
+    <div class="wrap">
+
+      <div class="stack-head">
+        <div class="eyebrow">The stack</div>
+        <h2 class="headline">What you're trusting your infrastructure to</h2>
+      </div>
+
+      <table class="stack-table">
+        <thead>
+          <tr>
+            <th>Layer</th>
+            <th>Technology</th>
+            <th>Why</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="td-layer">Backend</td>
+            <td class="td-tech">Go</td>
+            <td class="td-why">Low memory overhead and strong concurrency for simultaneous builds and WebSocket log streams on a resource-constrained VPS</td>
+          </tr>
+          <tr>
+            <td class="td-layer">Build</td>
+            <td class="td-tech">Railpack + BuildKit</td>
+            <td class="td-why">Production-grade image builds using the Railpack BuildKit frontend. The same path Railway uses internally, not just the convenience CLI.</td>
+          </tr>
+          <tr>
+            <td class="td-layer">Routing</td>
+            <td class="td-tech">Caddy</td>
+            <td class="td-why">Admin API enables runtime route registration without config reloads; automatic wildcard TLS via DNS-01 means every new deployment gets HTTPS without manual certificate work</td>
+          </tr>
+          <tr>
+            <td class="td-layer">Provisioning</td>
+            <td class="td-tech">Ansible</td>
+            <td class="td-why">Idempotent, auditable playbooks. Molecule-tested in CI. <code>appa server setup</code> is repeatable; running it twice is safe.</td>
+          </tr>
+          <tr>
+            <td class="td-layer">Persistence</td>
+            <td class="td-tech">PostgreSQL</td>
+            <td class="td-why">Handles concurrent writes from simultaneous deployments; positioned for future per-project backup tooling with S3-compatible storage</td>
+          </tr>
+          <tr>
+            <td class="td-layer">Orchestration</td>
+            <td class="td-tech">Docker Stack + Swarm</td>
+            <td class="td-why">Production deployment via <code>docker stack deploy</code>. Declarative state management without the operational complexity of Kubernetes.</td>
+          </tr>
+        </tbody>
+      </table>
+
+    </div>
+  </section> -->
+
+
+  <!-- ============================================================
+       FINAL CTA
+  ============================================================ -->
+  <section class="cta">
+    <div class="wrap">
+      <h2 class="headline">Five commands to your own<br>deployment platform.</h2>
+      <p class="cta-sub">
+        Bring a fresh Ubuntu VPS and a domain on Cloudflare. <strong>appa</strong> handles the rest.
+      </p>
+      <div class="install-block">
+        <code><span style="color:var(--text-dim)">$</span> curl -fsSL https://appa.theolujay.dev/install.sh | sh</code>
+        <button class="copy-btn" id="copy-btn" onclick="copyInstall()">copy</button>
+      </div>
+      <div class="cta-actions">
+        <a class="btn-primary" href="https://github.com/theolujay/appa" target="_blank" rel="noopener">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+            <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
+          </svg>
+          ✰ Star on GitHub
+        </a>
+        <a class="btn-ghost" href="https://github.com/theolujay/appa/blob/main/docs/user-guide.md" target="_blank" rel="noopener">
+          Read the user guide →
+        </a>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ============================================================
+       FOOTER
+  ============================================================ -->
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer-inner">
+        <div class="footer-left">
+          Apache 2.0 License &nbsp;·&nbsp; Built by <a href="https://x.com/theolujay" style="color:var(--text-muted)" target="_blank" rel="noopener">Olujay</a>
+        </div>
+        <div class="footer-links">
+          <a class="footer-link" href="https://github.com/theolujay/appa" target="_blank" rel="noopener">GitHub</a>
+          <a class="footer-link" href="https://github.com/theolujay/appa/blob/main/docs/user-guide.md" target="_blank" rel="noopener">User Guide</a>
+          <a class="footer-link" href="https://github.com/theolujay/appa/blob/main/ARCHITECTURE.md" target="_blank" rel="noopener">Architecture</a>
+          <a class="footer-link" href="https://github.com/theolujay/appa/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+          <a class="footer-link" href="https://github.com/theolujay/appa/releases" target="_blank" rel="noopener">Releases</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+
+  <script>
+    // fetch latest release version from GitHub API
+    fetch('https://api.github.com/repos/theolujay/appa/releases/latest')
+      .then(response => {
+        if (response.ok) return response.json();
+        throw new Error('Network response was not ok.');
+      })
+      .then(data => {
+        const versionEl = document.getElementById('appa-version');
+        if (data.tag_name && versionEl) {
+          versionEl.textContent = data.tag_name;
+        }
+      })
+      .catch(err => console.error('Error fetching version:', err));
+
+    // nav scroll class
+    const nav = document.getElementById('nav');
+    const onScroll = () => nav.classList.toggle('scrolled', window.scrollY > 10);
+    window.addEventListener('scroll', onScroll, { passive: true });
+
+    // copy install command
+    function copyInstall() {
+      const btn = document.getElementById('copy-btn');
+      const cmd = 'curl -fsSL https://appa.theolujay.dev/install.sh | sh';
+      navigator.clipboard.writeText(cmd).then(() => {
+        btn.textContent = 'copied!';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = 'copy';
+          btn.classList.remove('copied');
+        }, 2000);
+      }).catch(() => {
+        // fallback for older browsers
+        const ta = document.createElement('textarea');
+        ta.value = cmd;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        btn.textContent = 'copied!';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = 'copy';
+          btn.classList.remove('copied');
+        }, 2000);
+      });
+    }
+  </script>
+
+</body>
+</html>

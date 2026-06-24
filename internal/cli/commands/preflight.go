@@ -40,11 +40,12 @@ func PreflightCmd() *cobra.Command {
 				for i, cfg := range cfgs {
 					options[i] = huh.NewOption(cfg.Name, cfg.Name)
 				}
-				if err := huh.NewSelect[string]().
-					Title("Select a server to check:").
-					Options(options...).
-					Value(&serverName).
-					Run(); err != nil {
+			if err := huh.NewSelect[string]().
+				Title("Select a server to check:").
+				Options(options...).
+				Value(&serverName).
+				WithTheme(tui.ThemeAppa()).
+				Run(); err != nil {
 					return err
 				}
 			}

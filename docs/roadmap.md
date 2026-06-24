@@ -7,7 +7,7 @@ and system design decisions live in [ARCHITECTURE.md](./architecture.md).
 
 ### MVP
 
-- Self-hostable single-node platform stack with Docker Compose.
+- Self-hosted single-node platform stack with Docker Compose.
 - Go API, PostgreSQL, BuildKit, Caddy, and React dashboard.
 - Git repository and ZIP archive deployments.
 - Zero-config Railpack builds for common application runtimes.
