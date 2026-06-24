@@ -217,7 +217,7 @@ Once your server is set up, you can manage it remotely:
 appa status my-server
 ```
 
-Shows SSH connectivity, API health, Docker Compose service status, and
+Shows SSH connectivity, API health, Docker Stack service status, and
 disk usage.
 
 ### Tail logs

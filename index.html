@@ -754,13 +754,13 @@
       <div class="hero-grid">
 
         <div class="hero-text">
-          <div class="eyebrow"><span id="appa-version">v0.2.0</span> &nbsp;·&nbsp; Apache 2.0</div>
+          <div class="eyebrow"><span id="appa-version">Apache 2.0</span></div>
           <h1 class="display">
             Your&nbsp;VPS.<br>
             Your&nbsp;deploys.<br>
             <em>Simplified.</em>
           </h1>
-          <p class="subhead" style="margin-top: 20px; margin-bottom: 36px;">
+          <p class="subhead" style="margin-top: 20px; margin-bottom: 36px; text-align: justify;">
             Turn any Linux VPS into a zero-config deployment platform, effortlessly! Connect your domain, push your code. No Dockerfiles, no sysadmin grind. Manage your entire fleet from one terminal.
           </p>
           <div class="hero-actions">
@@ -1150,7 +1150,7 @@
       .then(data => {
         const versionEl = document.getElementById('appa-version');
         if (data.tag_name && versionEl) {
-          versionEl.textContent = data.tag_name;
+          versionEl.textContent = data.tag_name + ' · Apache 2.0';
         }
       })
       .catch(err => console.error('Error fetching version:', err));

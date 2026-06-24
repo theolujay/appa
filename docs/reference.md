@@ -73,7 +73,7 @@ Phase labels persisted in logs: `build`, `deploy`, `routing`, `cancel`.
 ## Operational Constraints
 
 - Run the API, PostgreSQL, BuildKit, Caddy, and UI on the shared internal Docker
-  network expected by `compose.yml`.
+  network expected by `stack.base.yml`.
 - Do not expose PostgreSQL, BuildKit, Docker socket access, or the Caddy Admin
   API to the public internet.
 - Keep the Docker socket access limited to the API container; the API is the
@@ -93,7 +93,7 @@ Phase labels persisted in logs: `build`, `deploy`, `routing`, `cancel`.
   `appa setup` or `appa apply`.
 - Deployment ZIP extraction must preserve per-upload isolation and should reject
   unsafe archive paths before production use.
-- MVP deployment targets single-node Docker Compose.
+- MVP deployment targets single-node Docker Stack.
 
 ## Trade-offs and Open Questions
 
@@ -114,9 +114,9 @@ whenever Railpack is upgraded.
 
 **Orchestration Scope**
 
-Appa currently leverages standard **Docker Compose** for "single-command" setup
-on single-node environments. While Compose provides the simplicity required for
-v1, it is fundamentally a development tool that lacks advanced production
+Appa currently leverages standard **Docker Stack** for "single-command" setup
+on single-node environments. While Stack provides the simplicity required for
+v1, it is fundamentally a single-node orchestrator that lacks advanced production
 orchestration features such as health-based service restarts, zero-downtime
 updates, and multi-node scaling.
 

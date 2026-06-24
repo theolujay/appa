@@ -156,9 +156,9 @@ func statusFunc(name string) error {
 			output.Check("API healthy", false)
 		}
 
-		fmt.Print("  Checking Docker Compose services...\n")
+		fmt.Print("  Checking Docker Stack services...\n")
 		checkCmd := `
-			docker compose -f /opt/appa/compose.yml ps --format '{{.Name}} {{.Status}}' 2>/dev/null || echo 'compose not found'
+			{ docker stack services appa_data --format '{{.Name}} {{.Replicas}}' 2>/dev/null; docker stack services appa --format '{{.Name}} {{.Replicas}}' 2>/dev/null; } || echo 'stack not found'
 		`
 		out, err := ssh.RunCommand(sClient, checkCmd)
 		if err != nil {
@@ -168,7 +168,7 @@ func statusFunc(name string) error {
 			return err
 		}
 
-		if strings.Contains(out, "compose not found") || out == "" {
+		if strings.Contains(out, "stack not found") || out == "" {
 			output.Check("Appa Stack running", false)
 		} else {
 			output.Check("Appa Stack services", true)
@@ -193,7 +193,7 @@ func statusFunc(name string) error {
 	return nil
 }
 
-// logsFunc streams logs from Docker Compose services,
+// logsFunc streams logs from Docker Stack services,
 // with optional service filtering and line count limits.
 func logsFunc(name string, service string, tail int) error {
 	if !config.ServerExists(name) {
@@ -215,12 +215,18 @@ func logsFunc(name string, service string, tail int) error {
 		IdentityFile: p.SSHIdentityFile,
 		SkipVerify:   p.SSHSkipVerify,
 	}
-	dockerCmd := "docker compose -f /opt/appa/compose.yml logs -f"
-	if tail > 0 {
-		dockerCmd += fmt.Sprintf(" -n %d", tail)
-	}
+	dockerCmd := ""
 	if service != "" {
-		dockerCmd += " " + service
+		stackPrefix := "appa_"
+		if service == "db" {
+			stackPrefix = "appa_data_"
+		}
+		dockerCmd = fmt.Sprintf("docker service logs -f %s%s", stackPrefix, service)
+	} else {
+		dockerCmd = "docker service logs -f $(docker stack services appa_data -q) $(docker stack services appa -q) 2>/dev/null"
+	}
+	if tail > 0 {
+		dockerCmd += fmt.Sprintf(" --tail %d", tail)
 	}
 	c := ssh.RunInteractiveCommand(clientConfig, dockerCmd)
 	c.Stdout = os.Stdout
@@ -229,7 +235,7 @@ func logsFunc(name string, service string, tail int) error {
 	return c.Run()
 }
 
-// restartFunc restarts Appa Stack services via Docker Compose,
+// restartFunc restarts Appa Stack services via Docker Stack,
 // optionally limiting to a specific service.
 func restartFunc(name string, service string) error {
 	if !config.ServerExists(name) {
@@ -251,9 +257,15 @@ func restartFunc(name string, service string) error {
 		IdentityFile: p.SSHIdentityFile,
 		SkipVerify:   p.SSHSkipVerify,
 	}
-	dockerCmd := "docker compose -f /opt/appa/compose.yml restart"
+	var dockerCmd string
 	if service != "" {
-		dockerCmd += " " + service
+		stackPrefix := "appa_"
+		if service == "db" {
+			stackPrefix = "appa_data_"
+		}
+		dockerCmd = fmt.Sprintf("docker service update --force %s%s", stackPrefix, service)
+	} else {
+		dockerCmd = "{ docker stack deploy -c /opt/appa/stack.data.yml appa_data && docker stack deploy -c /opt/appa/stack.base.yml appa; } 2>/dev/null"
 	}
 	output.Success("Restarting services on %q...", name)
 	out, err := ssh.RunCommand(clientConfig, dockerCmd)
@@ -292,12 +304,14 @@ func upgradeFunc(name string, version string) error {
 	output.Section("Upgrading %q", name)
 
 	output.Success("Pulling latest images...")
-	pullCmd := "docker compose -f /opt/appa/compose.yml pull"
+	pullCmd := ""
 	if version != "" {
 		pullCmd = fmt.Sprintf(
-			`IMAGES=$(docker compose -f /opt/appa/compose.yml config --images 2>/dev/null || docker compose -f /opt/appa/compose.yml images -q) && for img in $IMAGES; do docker pull "${img%%:*}:%s"; done`,
+			`IMAGES=$(docker stack services appa_data --format '{{.Image}}' 2>/dev/null; docker stack services appa --format '{{.Image}}' 2>/dev/null) && for img in $IMAGES; do docker pull "${img%%:*}:%s"; done`,
 			version,
 		)
+	} else {
+		pullCmd = `docker stack services appa_data --format '{{.Image}}' 2>/dev/null | while read -r img; do [ -n "$img" ] && docker pull "$img"; done; docker stack services appa --format '{{.Image}}' 2>/dev/null | while read -r img; do [ -n "$img" ] && docker pull "$img"; done`
 	}
 	out, err := ssh.RunCommand(clientConfig, pullCmd)
 	if err != nil {
@@ -306,7 +320,7 @@ func upgradeFunc(name string, version string) error {
 	fmt.Print(out)
 
 	output.Success("Recreating services...")
-	out, err = ssh.RunCommand(clientConfig, "docker compose -f /opt/appa/compose.yml up -d")
+	out, err = ssh.RunCommand(clientConfig, "{ docker stack deploy -c /opt/appa/stack.data.yml appa_data && docker stack deploy -c /opt/appa/stack.base.yml appa; } 2>/dev/null")
 	if err != nil {
 		return fmt.Errorf("up failed: %w", err)
 	}

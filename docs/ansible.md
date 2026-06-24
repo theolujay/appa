@@ -11,7 +11,7 @@ run directly against a generated or local test inventory.
 - `playbooks/compliance-scan.yml` — read-only checks for the same control areas
   and reports drift.
 - `playbooks/deploy-stack.yml` — installs Docker, renders Appa Stack environment
-  and Compose file, starts platform services on the remote VPS.
+  and Stack templates, starts platform services on the remote VPS.
 
 ## Roles
 

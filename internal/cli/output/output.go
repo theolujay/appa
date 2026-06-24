@@ -16,7 +16,7 @@ var (
 	Red       = lipgloss.Color("#FF5555")
 	Yellow    = lipgloss.Color("#F1FA8C")
 	Cyan      = lipgloss.Color("#8BE9FD")
-	Gray      = lipgloss.Color("#6272A4")
+	Gray      = lipgloss.Color("#7F8FA0")
 	White     = lipgloss.Color("#FAFAFA")
 	DarkBg    = lipgloss.Color("#1A1A2E")
 	DarkCard  = lipgloss.Color("#16213E")

@@ -76,15 +76,15 @@ func NewPreflightModel(checks []Check) *PreflightModel {
 		}(),
 		spring:        harmonica.NewSpring(harmonica.FPS(60), 8.0, 0.4),
 		titleStyle:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#007fff")),
-		subtitleStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")),
-		numStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")),
+		subtitleStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("#7F8FA0")),
+		numStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("#7F8FA0")),
 		labelStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("#F8F8F2")),
-		pendingStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")),
+		pendingStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("#7F8FA0")),
 		runningStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("#8BE9FD")),
 		okStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Bold(true),
 		failStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Bold(true),
 		warnStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("#F1FA8C")).Bold(true),
-		infoStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")),
+		infoStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("#7F8FA0")),
 	}
 }
 

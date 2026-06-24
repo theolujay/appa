@@ -235,7 +235,7 @@ func (m *logModel) renderFooter() string {
 	case m.err != nil:
 		statusDot = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Render("●")
 	case m.status == "stream ended":
-		statusDot = lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render("●")
+		statusDot = lipgloss.NewStyle().Foreground(lipgloss.Color("#7F8FA0")).Render("●")
 	default:
 		statusDot = lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Render("●")
 	}
@@ -256,7 +256,7 @@ func (m *logModel) renderFooter() string {
 	}
 
 	help := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#6272A4")).
+		Foreground(lipgloss.Color("#7F8FA0")).
 		Render(" [q] quit  [f] follow  [↑↓/j k] scroll  [g/G] top/bottom ")
 
 	info := fmt.Sprintf("%s %s  %s follow\n%s", statusDot, statusText, followDot, help)

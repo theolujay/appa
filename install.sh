@@ -5,11 +5,11 @@ REPO_OWNER="theolujay"
 REPO_NAME="appa"
 
 BOLD="$(tput bold 2>/dev/null || printf '')"
-PURPLE="$(tput setaf 99 2>/dev/null || printf '\033[38;2;125;86;244m')"
+BLUE="$(tput setaf 33 2>/dev/null || printf '\033[38;2;0;127;255m')"
 GREEN="$(tput setaf 78 2>/dev/null || printf '\033[38;2;67;191;109m')"
 RED="$(tput setaf 203 2>/dev/null || printf '\033[38;2;255;85;85m')"
 YELLOW="$(tput setaf 228 2>/dev/null || printf '\033[38;2;241;250;140m')"
-GRAY="$(tput setaf 61 2>/dev/null || printf '\033[38;2;98;114;164m')"
+GRAY="$(tput setaf 67 2>/dev/null || printf '\033[38;2;127;143;160m')"
 NO_COLOR="$(tput sgr0 2>/dev/null || printf '\033[0m')"
 
 CURL_RETRY_OPTS="--retry 3 --retry-all-errors --retry-delay 2"
@@ -200,7 +200,7 @@ printf '\n'
 
 # --- Confirm ---
 if [ -t 0 ] && [ -z "${FORCE}" ]; then
-  printf '%s' "${PURPLE}?${NO_COLOR} Install ${REPO_NAME} ${GREEN}${VERSION}${NO_COLOR} to ${BOLD}${GREEN}${BIN_DIR}${NO_COLOR}? [y/N] "
+  printf '%s' "${BLUE}?${NO_COLOR} Install ${REPO_NAME} ${GREEN}${VERSION}${NO_COLOR} to ${BOLD}${GREEN}${BIN_DIR}${NO_COLOR}? [y/N] "
   read -r yn </dev/tty || true
   case "$yn" in
     y|Y|yes|YES) ;;
@@ -307,7 +307,7 @@ fi
 
 # --- Done ---
 printf '\n'
-printf '%s' "${PURPLE}"
+printf '%s' "${BLUE}"
 cat << 'EOF'
 
       _|_|
